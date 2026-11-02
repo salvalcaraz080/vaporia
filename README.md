@@ -20,11 +20,7 @@ Web export uses the **Web** preset: single-threaded, so it does not need `Shared
 
 ## Play it on the web
 
-After this lands on `main`, GitHub Actions exports the web build and deploys it:
-
-https://salvalcaraz080.github.io/vaporia/
-
-The repository owner has to turn that on once: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+A push to `main`, or a manual run of the workflow, exports the web build and force-pushes it as the single commit on `web-build`. Connect the repository in Cloudflare Pages once and serve that branch as-is: no build command, output directory `/`. The entry point is `index.html`.
 
 ## Layout
 
