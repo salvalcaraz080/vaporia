@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: vaporia-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sim:
+    name: Headless sim
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Godot
+        uses: chickensoft-games/setup-godot@v2.4.3
+        with:
+          version: 4.7.2
+          use-dotnet: false
+      - name: Smoke test the balance sim
+        run: godot --headless --path . -s res://tools/sim_main.gd -- --runs 25 --policies random,greedy,rarity --smoke
+
+  pages:
+    name: Web export
+    needs: sim
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Godot
+        uses: chickensoft-games/setup-godot@v2.4.3
+        with:
+          version: 4.7.2
+          use-dotnet: false
+          include-templates: true
+      - name: Export single-threaded web build
+        run: |
+          mkdir -p build/web
+          godot --headless --path . --export-release Web build/web/index.html
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
