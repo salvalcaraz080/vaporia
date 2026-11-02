@@ -1,0 +1,11 @@
+.godot/
+build/
+android/
+*.apk
+*.aab
+*.tmp
+*.translation
+.import/
+export_credentials.cfg
+*.keystore
+node_modules/
