@@ -254,6 +254,8 @@ func _drive_async(kind: String) -> void:
 			_press_first_choice()
 		"event_msg":
 			_press_continue()
+		"merchant":
+			_merchant_leave()
 		"end":
 			print("AUTOPLAY_OK")
 			get_tree().quit(0)
@@ -362,6 +364,9 @@ func _advance() -> void:
 		events_n += 1
 		_show_event(ev, 0)
 		return
+	if kind == "mercader":
+		_open_merchant()
+		return
 	_show_event(db.camp, 0)
 
 
@@ -381,7 +386,7 @@ func _paint_header() -> void:
 	var path := HFlowContainer.new()
 	path.add_theme_constant_override("h_separation", 3)
 	path.add_theme_constant_override("v_separation", 3)
-	var icons := {"combate": "·", "elite": "!", "minijefe": "M", "evento": "?", "campamento": "C", "jefe": "B"}
+	var icons := {"combate": "·", "elite": "!", "minijefe": "M", "evento": "?", "campamento": "C", "mercader": "N", "jefe": "B"}
 	for i in chapter.size():
 		var mark := Label.new()
 		mark.text = icons.get(str(chapter[i]), "·")
@@ -824,6 +829,101 @@ func _press_first_choice() -> void:
 		if not b.disabled:
 			b.pressed.emit()
 			return
+
+
+# ---------- Merchant ----------
+
+var _visit: Dictionary = {}
+var _visit_rng: SeededRng
+var _visit_note := ""
+
+
+func _open_merchant() -> void:
+	_visit_rng = SeededRng.new("%s|mercader|%d" % [seed, step + 1])
+	_visit = Rules.open_merchant(db, hero, step + 1, _visit_rng)
+	_visit_note = ""
+	_render_merchant()
+
+
+func _render_merchant() -> void:
+	_paint_header()
+	_clear(_body)
+	_clear(_footer)
+	var tier := Rules.merchant_tier(db, step + 1)
+	var title := _label(str(db.merchant.title), 26, COL_BRASS)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_body.add_child(title)
+	var intro := _label(str(db.merchant.intro), 16, COL_MUTED)
+	intro.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_body.add_child(intro)
+	_body.add_child(_label("%s. %s" % [str(tier.name), str(tier.blurb)], 16, COL_TEXT))
+	_body.add_child(_label("You have %d nuts. Stats %d/%d.%s" % [int(hero.coins), int(_visit.stat_buys), int(db.merchant.maxStatBuys), " Skill bought." if _visit.skill_bought else ""], 16, COL_BRASS))
+	if _visit_note != "":
+		_body.add_child(_label(_visit_note, 16, COL_HP))
+	_body.add_child(_label("Stat upgrades", 20, COL_BRASS))
+	for i in _visit.stats.size():
+		var item: Dictionary = _visit.stats[i]
+		var idx: int = i
+		var price := int(item.price)
+		var affordable: bool = hero.coins >= float(price) and int(_visit.stat_buys) < int(db.merchant.maxStatBuys)
+		var b := _button("%s\n%s\n%d nuts" % [item.name, item.text, price], func(): _buy_stat(idx))
+		b.disabled = not affordable
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.custom_minimum_size = Vector2(0, 88)
+		_body.add_child(b)
+	_body.add_child(_label("One skill", 20, COL_BRASS))
+	if _visit.skills.is_empty():
+		_body.add_child(_label("Nothing on the pegs.", 16, COL_MUTED))
+	for i in _visit.skills.size():
+		var card: Dictionary = _visit.skills[i]
+		var idx: int = i
+		var price := int(card.price)
+		var rarity := str(card.get("rarity", "comun"))
+		var col := COL_LINE
+		if db.rarities.has(rarity):
+			col = Color(str(db.rarities[rarity].color))
+		var fam := ""
+		if db.skill_by_id.has(card.id):
+			fam = str(db.family_by_id[db.skill_by_id[card.id].fam].name)
+		var affordable: bool = hero.coins >= float(price) and not _visit.skill_bought
+		var b := _button("%s\n%s · %s\n%s\n%d nuts" % [card.name, db.rarities[rarity].name, fam, card.text, price], func(): _buy_skill(idx))
+		b.disabled = not affordable
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.custom_minimum_size = Vector2(0, 108)
+		_style_button(b, COL_PANEL2, col, COL_TEXT)
+		_body.add_child(b)
+	var refresh_price := Rules.merchant_refresh_price(db, _visit)
+	var refreshes_left: int = int(db.merchant.maxRefreshes) - int(_visit.refreshes)
+	var refresh := _button("Refresh stock (%d nuts, %d left)" % [refresh_price, refreshes_left], _refresh_merchant)
+	refresh.disabled = refreshes_left <= 0 or hero.coins < float(refresh_price)
+	_footer.add_child(refresh)
+	_footer.add_child(_button("Leave the stall", _merchant_leave, true))
+	_fade()
+	_drive("merchant")
+
+
+func _buy_stat(index: int) -> void:
+	var item: Dictionary = _visit.stats[index]
+	if Rules.buy_merchant_stat(db, hero, _visit, index, _visit_rng):
+		_visit_note = "Bought %s." % str(item.name)
+	_render_merchant()
+
+
+func _buy_skill(index: int) -> void:
+	var card: Dictionary = _visit.skills[index]
+	if Rules.buy_merchant_skill(db, hero, _visit, index):
+		_visit_note = "Bought %s." % str(card.name)
+	_render_merchant()
+
+
+func _refresh_merchant() -> void:
+	if Rules.refresh_merchant(db, hero, _visit, _visit_rng):
+		_visit_note = "Fresh stock."
+	_render_merchant()
+
+
+func _merchant_leave() -> void:
+	_advance()
 
 
 # ---------- End ----------

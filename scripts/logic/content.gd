@@ -23,6 +23,7 @@ var events: Array = []
 var event_by_id: Dictionary = {}
 var camp: Dictionary = {}
 var chapter: Array = []
+var merchant: Dictionary = {}
 var rewards: Dictionary = {}
 var sources: Dictionary = {}
 var stat_info: Array = []
@@ -80,6 +81,7 @@ func _load() -> void:
 		event_by_id[ev.id] = ev
 	camp = data.camp
 	chapter = data.chapter
+	merchant = data.merchant
 	rewards = data.rewards
 	sources = data.sources
 	stat_info = data.statInfo

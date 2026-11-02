@@ -230,11 +230,38 @@ static func run_one(db: ContentDB, r: int, pol: String, agg: Dictionary) -> Dict
 			if h.hp <= 0.0:
 				death = step
 			continue
+		if k == "mercader":
+			var rng_m := SeededRng.new(seed + "|mercader|" + str(step))
+			_run_merchant(db, h, step, pol, rng_b, rng_m, offered, picked)
+			continue
 		if k == "campamento":
 			var c := _choose_camp(h, pol, rng_b)
 			agg.camp[str(c.id)] = int(agg.camp.get(c.id, 0)) + 1
 			h.apply_fx(c.fx, rng_e)
 	return {"win": death == null, "death": death, "gear": gear, "hero": h, "offered": offered, "picked": picked, "fights": int(box.fights)}
+
+
+static func _run_merchant(db: ContentDB, h: HeroState, step: int, pol: String, rng_b: SeededRng, rng_m: SeededRng, offered: Dictionary, picked: Dictionary) -> void:
+	var visit := Rules.open_merchant(db, h, step, rng_m)
+	for _guard in 12:
+		var action := _merchant_action(h, visit, pol, rng_b)
+		if str(action.get("kind", "leave")) == "leave":
+			break
+		var ok := false
+		if action.kind == "stat":
+			ok = Rules.buy_merchant_stat(db, h, visit, int(action.index), rng_m)
+		elif action.kind == "skill":
+			ok = Rules.buy_merchant_skill(db, h, visit, int(action.index))
+		elif action.kind == "refresh":
+			ok = Rules.refresh_merchant(db, h, visit, rng_m)
+		if not ok:
+			break
+	for card in visit.skills:
+		if str(card.kind) != "skill":
+			continue
+		offered[card.id] = int(offered.get(card.id, 0)) + 1
+		if card.get("taken"):
+			picked[card.id] = int(picked.get(card.id, 0)) + 1
 
 
 static func _resolve_fight(db: ContentDB, h: HeroState, seed: String, step: int, sub: int, kind: String, pol: String, rng_o: SeededRng, rng_b: SeededRng, rng_en: SeededRng, offered: Dictionary, picked: Dictionary, agg: Dictionary, box: Dictionary) -> bool:
@@ -320,14 +347,105 @@ static func _choose_camp(h: HeroState, pol: String, rng: SeededRng) -> Dictionar
 		return ok[rng.pick_index(ok.size())]
 	if h.hp / h.max_hp < 0.55:
 		return camp.choices[0]
-	var want := "buy_atk" if int(h.bought.get("atk", 0)) <= int(h.bought.get("def", 0)) else "buy_def"
-	for c in ok:
-		if str(c.id) == want:
-			return c
-	for c in ok:
-		if str(c.id).begins_with("buy_"):
-			return c
 	return camp.choices[1]
+
+
+static func _merchant_action(h: HeroState, visit: Dictionary, pol: String, rng: SeededRng) -> Dictionary:
+	if pol == "aleatorio":
+		var bag: Array = [{"kind": "leave"}]
+		if int(visit.stat_buys) < int(h.db.merchant.maxStatBuys):
+			for i in visit.stats.size():
+				if h.coins >= float(visit.stats[i].price):
+					bag.append({"kind": "stat", "index": i})
+		if not visit.skill_bought:
+			for i in visit.skills.size():
+				if h.coins >= float(visit.skills[i].price):
+					bag.append({"kind": "skill", "index": i})
+		if int(visit.refreshes) < int(h.db.merchant.maxRefreshes) and h.coins >= float(Rules.merchant_refresh_price(h.db, visit)):
+			bag.append({"kind": "refresh"})
+		return bag[rng.pick_index(bag.size())]
+	if pol == "rareza":
+		return _merchant_rarity(h, visit)
+	return _merchant_greedy(h, visit)
+
+
+static func _merchant_greedy(h: HeroState, visit: Dictionary) -> Dictionary:
+	if not visit.skill_bought:
+		var best_i := -1
+		var best_s := -1.0
+		for i in visit.skills.size():
+			if h.coins < float(visit.skills[i].price):
+				continue
+			var s := _score_card(h, visit.skills[i], "codicioso")
+			if s > best_s:
+				best_s = s
+				best_i = i
+		var can_refresh := int(visit.refreshes) < int(h.db.merchant.maxRefreshes) and h.coins >= float(Rules.merchant_refresh_price(h.db, visit))
+		if best_i >= 0 and best_s >= 115.0:
+			return {"kind": "skill", "index": best_i}
+		if can_refresh and int(visit.refreshes) < 1 and (best_i < 0 or best_s < 115.0):
+			return {"kind": "refresh"}
+		if best_i >= 0 and best_s >= 110.0:
+			return {"kind": "skill", "index": best_i}
+	if int(visit.stat_buys) < int(h.db.merchant.maxStatBuys):
+		var best_i := -1
+		# Spend a fat purse even on a less efficient upgrade.
+		var best_ratio := 0.3 if h.coins < 70.0 else 0.14
+		for i in visit.stats.size():
+			var item: Dictionary = visit.stats[i]
+			if h.coins < float(item.price):
+				continue
+			var fx: Dictionary = item.fx
+			var ratio: float = _score_fx(h, fx) / max(1.0, float(item.price))
+			if ratio > best_ratio:
+				best_ratio = ratio
+				best_i = i
+		if best_i >= 0:
+			return {"kind": "stat", "index": best_i}
+	return {"kind": "leave"}
+
+
+static func _merchant_rarity(h: HeroState, visit: Dictionary) -> Dictionary:
+	if not visit.skill_bought:
+		var best_i := -1
+		var best_rank := -1
+		var best_s := -1.0
+		var purse := max(1.0, h.coins)
+		for i in visit.skills.size():
+			var card: Dictionary = visit.skills[i]
+			var price := float(card.price)
+			if h.coins < price:
+				continue
+			# Keep enough nuts for a stat unless the skill is most of a small purse.
+			if price > purse * 0.55 and purse > 80.0:
+				continue
+			var rank := int({"comun": 0, "rara": 1, "epica": 2, "legendaria": 3}.get(str(card.rarity), 0))
+			var s := _score_card(h, card, "rareza")
+			if rank > best_rank or (rank == best_rank and s > best_s):
+				best_rank = rank
+				best_s = s
+				best_i = i
+		var refresh_price := float(Rules.merchant_refresh_price(h.db, visit))
+		var can_refresh: bool = int(visit.refreshes) < 1 and h.coins - refresh_price >= 36.0
+		if best_rank <= 0 and can_refresh:
+			return {"kind": "refresh"}
+		if best_i >= 0:
+			return {"kind": "skill", "index": best_i}
+	if int(visit.stat_buys) < int(h.db.merchant.maxStatBuys):
+		var best_i := -1
+		var best_ratio := 0.2
+		for i in visit.stats.size():
+			var item: Dictionary = visit.stats[i]
+			if h.coins < float(item.price):
+				continue
+			var fx: Dictionary = item.fx
+			var ratio: float = _score_fx(h, fx) / max(1.0, float(item.price))
+			if ratio > best_ratio:
+				best_ratio = ratio
+				best_i = i
+		if best_i >= 0:
+			return {"kind": "stat", "index": best_i}
+	return {"kind": "leave"}
 
 
 static func _second_fam(h: HeroState) -> String:

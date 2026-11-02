@@ -4,7 +4,7 @@ A fair, fun-first semi-idle roguelite in the vein of Capybara Go and Rogue Legen
 
 Chispa is the one doing the fighting. Farolillo, a lantern-snail, comes along.
 
-This build plays the v3 loop: pick a tool, auto-battle through the Boiler Ward, choose 1 of 3 skills, spend nuts at the v3 merchants and camp, and finish or fall. The merchant layout is unchanged on purpose.
+This build plays the v3 fight and event loop, with one change: nuts are spent only at a wandering merchant on steps 10 and 23. Each stall sells up to three stat upgrades and one skill, and the stock can be refreshed. Camps are only a rest or a free skill tune.
 
 ## Run
 

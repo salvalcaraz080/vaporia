@@ -547,21 +547,153 @@ const events = C.EVENTS.map((ev) => {
   return o;
 });
 
-const campEnChoices = {
-  descansar: ch("Rest", "Heal 40% of your max HP."),
-  ajustar: ch("Tune the kit", "+1 level to a random skill."),
-};
 const camp = {
   id: "campamento",
   cat: "dilema",
   rarity: "comun",
   title: "Camp",
-  text: "A quiet coal stove and a workbench. You can do one thing.",
-  choices: C.CAMP.choices.map((c) => {
-    if (c.fx && c.fx.buy) return buyChoice(c.fx.buy);
-    const label = campEnChoices[c.id];
-    return { id: c.id, label: label.label, detail: label.detail, fx: cloneFx(c.fx) };
-  }),
+  text: "A quiet coal stove. Rest, or tune a skill. Nuts are only spent at the merchant.",
+  choices: [
+    { id: "descansar", label: "Rest", detail: "Heal 40% of your max HP.", fx: { heal: 0.4 } },
+    { id: "ajustar", label: "Tune the kit", detail: "+1 level to a random skill.", fx: { upgrade: 1 } },
+  ],
+};
+
+// Nuts leave the purse only at the fixed merchant. Rewrite every other sink.
+function replaceEvent(id, text, choices) {
+  const ev = events.find((e) => e.id === id);
+  if (!ev) throw new Error("missing event " + id);
+  if (text) ev.text = text;
+  ev.choices = choices;
+  delete ev.shop;
+  delete ev.stat;
+}
+replaceEvent("herrero", "The forge is banked. She lets you warm your hands. Nothing is for sale.", [
+  { id: "mirar", label: "Warm your hands", detail: "Heal 15% of your max HP.", fx: { heal: 0.15 } },
+  nadaChoice(),
+]);
+replaceEvent("sastre", "He has no cloth for sale. He does pin a spare ribbon on your coat.", [
+  { id: "cinta", label: "Take the ribbon", detail: "+1 reroll.", fx: { rerolls: 1 } },
+  nadaChoice(),
+]);
+replaceEvent("optico", "The lenses are only for show today. You may still borrow a look.", [
+  { id: "mirar", label: "Borrow a look", detail: "Heal 10% of your max HP.", fx: { heal: 0.1 } },
+  nadaChoice(),
+]);
+replaceEvent("feria", "The stalls are shouting, but nobody is selling to you. A vendor presses a few nuts into your hand to move you along.", [
+  { id: "propina", label: "Take the tip", detail: "+15 nuts.", fx: { coins: 15 } },
+  nadaChoice(),
+]);
+replaceEvent("chatarrero", "The otter's cart is shut. She points you toward the merchant and shares a sip of tonic.", [
+  { id: "sorbo", label: "Take a sip", detail: "Heal 20% of your max HP.", fx: { heal: 0.2 } },
+  nadaChoice(),
+]);
+replaceEvent("relojero", "His case stays closed. He still lets you sit a minute.", [
+  { id: "escuchar", label: "Sit a minute", detail: "Heal 15% of your max HP.", fx: { heal: 0.15 } },
+  nadaChoice(),
+]);
+replaceEvent("boticaria", "The flasks stay in the boat. The smell alone is a little soothing.", [
+  { id: "oler", label: "Breathe it in", detail: "Heal 20% of your max HP.", fx: { heal: 0.2 } },
+  nadaChoice(),
+]);
+replaceEvent("subasta", "The gavel is for other buyers. You can still sell one of your own plans.", [
+  { id: "vender", label: "Sell one of your plans", detail: "-1 level to a random skill. +45 nuts.", fx: { downgrade: 1, coins: 45 } },
+  nadaChoice(),
+]);
+replaceEvent("negro", "He will not take nuts. A favor, or nothing.", [
+  { id: "favor", label: "Call in a favor", detail: "Lose 12% of your current HP. Lose a random curse, if you have one.", fx: { hurt: 0.12, uncurse: true } },
+  nadaChoice(),
+]);
+replaceEvent("farol", "The lamp will trade words, not nuts.", [
+  { id: "llama", label: "Take the flame", detail: "+12% attack. -15 max HP.", fx: { mods: { atkPct: 0.12 }, maxHp: -15 } },
+  { id: "charla", label: "Just talk", detail: "Heal 15% of your max HP.", fx: { heal: 0.15 } },
+]);
+replaceEvent("tragaperras", "The slot takes no nuts from you. Kick it, or give the crank one free pull.", [
+  { id: "jugar", label: "One free pull", detail: "40%: +25 nuts. 60%: nothing.", fx: { gamble: { p: 0.4, win: { coins: 25 }, lose: {} } } },
+  { id: "patada", label: "Give it a kick", detail: "50%: +15 nuts. 50%: lose 10% of your current HP.", fx: { gamble: { p: 0.5, win: { coins: 15 }, lose: { hurt: 0.1 } } } },
+]);
+replaceEvent("dados", "The gambler will not take nuts. He will still throw for pride.", [
+  { id: "vida", label: "Bet HP", detail: "50%: +25 max HP. 50%: -15 max HP.", fx: { gamble: { p: 0.5, win: { maxHp: 25 }, lose: { maxHp: -15 } } } },
+  { id: "orgullo", label: "Bet pride", detail: "50%: +1 reroll. 50%: nothing.", fx: { gamble: { p: 0.5, win: { rerolls: 1 }, lose: {} } } },
+]);
+replaceEvent("carrera", "No bookie. Cheer a mouse, or just watch.", [
+  { id: "animar", label: "Cheer a mouse", detail: "35%: +30 nuts. 65%: nothing.", fx: { gamble: { p: 0.35, win: { coins: 30 }, lose: {} } } },
+  { id: "mirar", label: "Just watch", detail: "Heal 10% of your max HP.", fx: { heal: 0.1 } },
+]);
+
+function assertNoSpend(fx, path) {
+  if (!fx) return;
+  if (fx.buy) throw new Error("stat purchase left at " + path);
+  if (typeof fx.coins === "number" && fx.coins < 0) throw new Error("nut spend left at " + path);
+  if (fx.gamble) {
+    assertNoSpend(fx.gamble.win, path + ".win");
+    assertNoSpend(fx.gamble.lose, path + ".lose");
+  }
+  if (fx.bless) {
+    /* blessing fx is stored separately and has no spends */
+  }
+}
+for (const ev of events) {
+  for (const c of ev.choices) {
+    if (c.cost) throw new Error("cost left on " + ev.id + ":" + c.id);
+    assertNoSpend(c.fx, ev.id + ":" + c.id);
+  }
+}
+for (const c of camp.choices) assertNoSpend(c.fx, "camp:" + c.id);
+
+const chapter = C.CHAPTER_TEMPLATE.slice();
+if (chapter[9] !== "evento" || chapter[22] !== "evento") {
+  throw new Error("merchant slots moved: " + chapter[9] + " " + chapter[22]);
+}
+chapter[9] = "mercader";
+chapter[22] = "mercader";
+
+const merchant = {
+  title: "Wandering merchant",
+  intro: "Nuts are spent only here. Buy up to 3 stat upgrades, and one skill. Pay to refresh the stock, or leave the nuts for the next stall.",
+  maxStatBuys: 3,
+  maxRefreshes: 2,
+  statSlots: 3,
+  skillSlots: 3,
+  repeatStep: 8,
+  tiers: [
+    {
+      id: "early",
+      name: "Early stock",
+      untilStep: 16,
+      blurb: "Small upgrades. Common and rare skills.",
+      refresh: 16,
+      skillMode: "normal",
+      skillPrice: { comun: 28, rara: 46, epica: 78, legendaria: 120 },
+      stats: {
+        atk: { price: 26, text: "+1 attack", fx: { atk: 1 } },
+        def: { price: 24, text: "+3 Defense", fx: { def: 3 } },
+        hp: { price: 24, text: "+12 max HP", fx: { maxHp: 12, heal: 0.05 } },
+        crit: { price: 34, text: "+4% crit chance", fx: { crit: 0.04 } },
+        critDmg: { price: 34, text: "+15% crit damage", fx: { critDmg: 0.15 } },
+        eva: { price: 32, text: "+3% Evasion", fx: { eva: 0.03 } },
+        acc: { price: 28, text: "+5% Accuracy", fx: { acc: 0.05 } },
+      },
+    },
+    {
+      id: "late",
+      name: "Late stock",
+      untilStep: 99,
+      blurb: "Larger upgrades. Rare, epic, and legendary skills.",
+      refresh: 30,
+      skillMode: "rising",
+      skillPrice: { comun: 40, rara: 62, epica: 98, legendaria: 150 },
+      stats: {
+        atk: { price: 54, text: "+2 attack", fx: { atk: 2 } },
+        def: { price: 50, text: "+4 Defense", fx: { def: 4 } },
+        hp: { price: 48, text: "+18 max HP", fx: { maxHp: 18, heal: 0.06 } },
+        crit: { price: 62, text: "+6% crit chance", fx: { crit: 0.06 } },
+        critDmg: { price: 62, text: "+25% crit damage", fx: { critDmg: 0.25 } },
+        eva: { price: 58, text: "+4% Evasion", fx: { eva: 0.04 } },
+        acc: { price: 52, text: "+6% Accuracy", fx: { acc: 0.06 } },
+      },
+    },
+  ],
 };
 
 function enemy(e) {
@@ -602,7 +734,8 @@ const game = {
   categories: CAT_EN,
   events,
   camp,
-  chapter: C.CHAPTER_TEMPLATE.slice(),
+  chapter,
+  merchant,
   rewards: { normal: ["normal"], elite: ["elite"], mini: ["epica", "elite"], boss: [] },
   sources: {
     ataque: "Hits", reloj: "Extra actions", oxido: "Rust", vapor: "Steam", tesla: "Tesla",
