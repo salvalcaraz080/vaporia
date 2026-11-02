@@ -8,8 +8,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: vaporia-${{ github.ref }}
@@ -29,14 +27,13 @@ jobs:
       - name: Smoke test the balance sim
         run: godot --headless --path . -s res://tools/sim_main.gd -- --runs 25 --policies random,greedy,rarity --smoke
 
-  pages:
+  web:
     name: Web export
     needs: sim
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - name: Install Godot
@@ -49,10 +46,30 @@ jobs:
         run: |
           mkdir -p build/web
           godot --headless --path . --export-release Web build/web/index.html
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: build/web
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Write Cloudflare _headers
+        run: |
+          cat > build/web/_headers << 'EOF'
+          # Export filenames are not content-hashed, so revalidate after each deploy.
+          # Single-threaded build: do not set COOP or COEP.
+          /*
+            Cache-Control: public, max-age=0, must-revalidate
+          /*.wasm
+            Content-Type: application/wasm
+            Cache-Control: public, max-age=0, must-revalidate
+          /*.pck
+            Content-Type: application/octet-stream
+            Cache-Control: public, max-age=0, must-revalidate
+          EOF
+      - name: Force-push web-build
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          test -f build/web/index.html
+          cd build/web
+          git init -q
+          git checkout --orphan web-build
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Web export ${GITHUB_SHA}"
+          git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:web-build
