@@ -1,0 +1,10 @@
+# Export filenames are not content-hashed, so revalidate after each deploy.
+# Single-threaded build: do not set COOP or COEP.
+/*
+  Cache-Control: public, max-age=0, must-revalidate
+/*.wasm
+  Content-Type: application/wasm
+  Cache-Control: public, max-age=0, must-revalidate
+/*.pck
+  Content-Type: application/octet-stream
+  Cache-Control: public, max-age=0, must-revalidate
