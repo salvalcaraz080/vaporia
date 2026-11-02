@@ -7,16 +7,24 @@ const Rules = preload("res://scripts/logic/rules.gd")
 const BattleSim = preload("res://scripts/logic/battle.gd")
 const JsMath = preload("res://scripts/logic/jsmath.gd")
 
-const COL_BG := Color("16130f")
-const COL_PANEL := Color("241c16")
-const COL_PANEL2 := Color("31261c")
-const COL_LINE := Color("5a4636")
+# Rebels: charcoal, rusted copper, verdigris, furnace orange. Empire gold is the accent.
+const COL_BG := Color("1b1814")
+const COL_PANEL := Color("2a241c")
+const COL_PANEL2 := Color("3a3126")
+const COL_LINE := Color("c47a45")
 const COL_BRASS := Color("e0b24a")
-const COL_TEXT := Color("f6f1e7")
-const COL_MUTED := Color("b7a48e")
-const COL_HP := Color("5bd17a")
-const COL_ENEMY := Color("e8576a")
+const COL_TEXT := Color("f6f0e4")
+const COL_MUTED := Color("cbbba4")
+const COL_HP := Color("7dcea0")
+const COL_ENEMY := Color("e07a3d")
 const COL_SHIELD := Color("7fb6ff")
+const COL_VERDIGRIS := Color("2f8f84")
+const RARITY_COLOR := {
+	"comun": Color("9aa3b8"),
+	"rara": Color("4ea4ff"),
+	"epica": Color("c47bff"),
+	"legendaria": Color("ffcb5c"),
+}
 
 const LOG_COLOR := {
 	"hit": "#f6f1e7", "crit": "#ffcb5c", "poison": "#c8743a", "burn": "#d5dee3",
@@ -48,7 +56,11 @@ var _header: VBoxContainer
 var _body: VBoxContainer
 var _footer: VBoxContainer
 var _stage: Control
+var _bg: WardBg
 var _seed_edit: LineEdit
+var _arena: Control
+var _player_art: Control
+var _enemy_art: Control
 
 var _offer_cards: Array = []
 var _offer_mode := ""
@@ -92,11 +104,10 @@ func _ready() -> void:
 
 
 func _build_shell() -> void:
-	var bg := ColorRect.new()
-	bg.color = COL_BG
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(bg)
+	_bg = WardBg.new()
+	_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_bg)
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
 	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
@@ -197,7 +208,7 @@ func _button(text: String, cb: Callable, primary := false) -> Button:
 	b.custom_minimum_size = Vector2(0, 56)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	if primary:
-		_style_button(b, COL_BRASS, COL_BRASS, Color("1b140c"))
+		_style_button(b, COL_VERDIGRIS, Color("7dcec4"), COL_TEXT)
 	else:
 		_style_button(b, COL_PANEL2, COL_LINE, COL_TEXT)
 	# Rebuild the screen after the click finishes, or the button is freed mid-signal.
@@ -232,8 +243,11 @@ func _drive(kind: String) -> void:
 
 
 func _drive_async(kind: String) -> void:
+	print("SCREEN " + kind)
 	await get_tree().process_frame
 	await RenderingServer.frame_post_draw
+	if kind != "end":
+		await get_tree().create_timer(0.45).timeout
 	if not _shot.has(kind):
 		_shot[kind] = true
 		var img := get_viewport().get_texture().get_image()
@@ -270,8 +284,16 @@ func _show_home() -> void:
 	_clear(_footer)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
-	var lantern := Lantern.new()
-	row.add_child(lantern)
+	var pair := HBoxContainer.new()
+	pair.add_theme_constant_override("separation", 4)
+	var chispa := ChispaMark.new()
+	chispa.custom_minimum_size = Vector2(72, 96)
+	var farol := FarolMark.new()
+	farol.custom_minimum_size = Vector2(64, 96)
+	pair.add_child(chispa)
+	pair.add_child(farol)
+	row.add_child(pair)
+	_sync_zone()
 	var title := VBoxContainer.new()
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.add_child(_label("Vaporia", 34, COL_BRASS, false))
@@ -372,7 +394,25 @@ func _advance() -> void:
 
 # ---------- Header ----------
 
+func _sync_zone() -> void:
+	if _bg == null:
+		return
+	var z := 0
+	if step >= 20:
+		z = 2
+	elif step >= 10:
+		z = 1
+	if _bg.zone != z:
+		_bg.zone = z
+		_bg.queue_redraw()
+
+
+func _rarity_color(id: String) -> Color:
+	return RARITY_COLOR.get(id, COL_LINE)
+
+
 func _paint_header() -> void:
+	_sync_zone()
 	_clear(_header)
 	var top := HBoxContainer.new()
 	var gear: Dictionary = db.gear_by_id[hero.gear]
@@ -464,9 +504,6 @@ func _render_offer(title: String) -> void:
 		var card: Dictionary = _offer_cards[i]
 		var idx := i
 		var rarity := str(card.get("rarity", "comun"))
-		var col := COL_LINE
-		if db.rarities.has(rarity):
-			col = Color(str(db.rarities[rarity].color))
 		var headline := str(card.name)
 		if str(card.kind) == "skill":
 			var sk: Dictionary = db.skill_by_id[card.id]
@@ -478,9 +515,32 @@ func _render_offer(title: String) -> void:
 			headline = str(card.name) + "\n" + headline
 		var b := _button(headline + "\n" + str(card.text), func(): _take_offer(idx))
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		b.custom_minimum_size = Vector2(0, 108)
-		_style_button(b, COL_PANEL2, col if not _banishing else COL_ENEMY, COL_TEXT)
-		_body.add_child(b)
+		b.custom_minimum_size = Vector2(0, 112)
+		var frame := _rarity_color(rarity) if str(card.kind) == "skill" else COL_LINE
+		if _banishing:
+			frame = COL_ENEMY
+		_style_button(b, COL_PANEL2, frame, COL_TEXT)
+		for state in ["normal", "hover", "pressed", "disabled"]:
+			var sb: StyleBoxFlat = b.get_theme_stylebox(state)
+			if sb:
+				sb = sb.duplicate()
+				sb.set_border_width_all(4)
+				sb.border_color = frame
+				b.add_theme_stylebox_override(state, sb)
+		var row_card := HBoxContainer.new()
+		row_card.add_theme_constant_override("separation", 8)
+		row_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		if str(card.kind) == "skill":
+			var glyph := FamilyMark.new()
+			glyph.fam = str(db.skill_by_id[card.id].fam)
+			glyph.tint = Color(str(db.family_by_id[glyph.fam].color))
+			glyph.custom_minimum_size = Vector2(44, 44)
+			glyph.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			row_card.add_child(glyph)
+		b.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		row_card.add_child(b)
+		_body.add_child(row_card)
+		_reveal(row_card, 0.06 * float(i))
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	var rr := _button("Reroll (%d)" % hero.rerolls, func():
@@ -572,15 +632,18 @@ func _start_fight(kind: String, sub: int, cb: Callable) -> void:
 	head.add_child(speeds)
 	_body.add_child(head)
 	var arena := HBoxContainer.new()
+	_arena = arena
 	arena.add_theme_constant_override("separation", 8)
-	arena.add_child(_fighter("Chispa", "Farolillo at her heel", COL_BRASS))
+	_player_art = _fighter("Chispa", "with Farolillo", COL_BRASS, "chispa")
+	arena.add_child(_player_art)
 	var vs := _label("VS", 18, COL_MUTED, false)
 	vs.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	arena.add_child(vs)
 	var trait_txt := ""
 	if str(enemy.trait) != "":
 		trait_txt = str(db.traits.get(enemy.trait, ""))
-	arena.add_child(_fighter(str(enemy.name), trait_txt, COL_ENEMY))
+	_enemy_art = _fighter(str(enemy.name), trait_txt, _trait_tint(str(enemy.trait)), str(enemy.trait))
+	arena.add_child(_enemy_art)
 	_body.add_child(arena)
 	_hp_bar = _bar(COL_HP)
 	_hp_bar.max_value = hero.max_hp
@@ -622,13 +685,47 @@ func _start_fight(kind: String, sub: int, cb: Callable) -> void:
 	_drive("combat")
 
 
-func _fighter(name: String, sub: String, col: Color) -> VBoxContainer:
+func _trait_tint(trait_id: String) -> Color:
+	match trait_id:
+		"blindado":
+			return Color("3f8f86")
+		"esquiva":
+			return Color("d5e2ea")
+		"rapido":
+			return Color("e07a3d")
+		"regenera":
+			return Color("8fbf6a")
+		"espinas":
+			return Color("c47a45")
+		"pesado":
+			return Color("5c6a78")
+		"certero":
+			return Color("e0b24a")
+		_:
+			return Color("a86848")
+
+
+func _fighter(name: String, sub: String, col: Color, kind: String) -> VBoxContainer:
 	var box := VBoxContainer.new()
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var swatch := ColorRect.new()
-	swatch.custom_minimum_size = Vector2(0, 54)
-	swatch.color = col
-	box.add_child(swatch)
+	var art: Control
+	if kind == "chispa":
+		var row := HBoxContainer.new()
+		row.alignment = BoxContainer.ALIGNMENT_CENTER
+		var c := ChispaMark.new()
+		c.custom_minimum_size = Vector2(78, 104)
+		var f := FarolMark.new()
+		f.custom_minimum_size = Vector2(58, 104)
+		row.add_child(c)
+		row.add_child(f)
+		art = row
+	else:
+		var e := EnemyMark.new()
+		e.kind_id = kind
+		e.tint = col
+		e.custom_minimum_size = Vector2(96, 104)
+		art = e
+	box.add_child(art)
 	var n := _label(name, 16, COL_TEXT)
 	n.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(n)
@@ -674,15 +771,80 @@ func _paint_line(en: Dictionary, shake: bool) -> void:
 	if int(en.shield):
 		_status.text += "  shield %d" % int(en.shield)
 	_status.text += "\n" + bits
-	if shake and str(en.k) in ["hit", "crit", "enemy", "bolt"]:
-		_shake()
+	var kind := str(en.k)
+	if shake and kind in ["hit", "crit", "enemy", "bolt", "thorns", "poison", "burn", "reso", "auto", "mag"]:
+		var num := _first_number(str(en.text))
+		var on_enemy := kind != "enemy" and kind != "thorns"
+		var flash_col := COL_BRASS if kind == "crit" else (COL_ENEMY if kind == "enemy" else COL_TEXT)
+		if num != "":
+			_float_num(num, flash_col, on_enemy)
+		if on_enemy:
+			_flash(_enemy_art, flash_col)
+		else:
+			_flash(_player_art, COL_ENEMY)
+		_shake(18.0 if kind == "crit" else 8.0)
+		if kind == "crit":
+			_crit_burst()
 
 
-func _shake() -> void:
+func _first_number(text: String) -> String:
+	var rx := RegEx.new()
+	rx.compile("\\d+")
+	var found := rx.search(text)
+	if found == null:
+		return ""
+	return found.get_string()
+
+
+func _float_num(text: String, color: Color, on_enemy: bool) -> void:
+	var lab := Label.new()
+	lab.text = text
+	lab.add_theme_font_size_override("font_size", 28)
+	lab.add_theme_color_override("font_color", color)
+	lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_stage.add_child(lab)
+	var origin := size * 0.5
+	if _arena != null:
+		origin = _arena.global_position + Vector2(200 if on_enemy else 36, 16)
+	lab.global_position = origin
 	var tw := create_tween()
-	tw.tween_property(_stage, "position:x", 10.0, 0.03)
-	tw.tween_property(_stage, "position:x", -8.0, 0.03)
-	tw.tween_property(_stage, "position:x", 0.0, 0.04)
+	tw.set_parallel(true)
+	tw.tween_property(lab, "global_position:y", lab.global_position.y - 52.0, 0.45)
+	tw.tween_property(lab, "modulate:a", 0.0, 0.45)
+	tw.chain().tween_callback(lab.queue_free)
+
+
+func _flash(node: Control, color: Color) -> void:
+	if node == null:
+		return
+	var prev := node.modulate
+	node.modulate = color
+	var tw := create_tween()
+	tw.tween_property(node, "modulate", prev, 0.18)
+
+
+func _crit_burst() -> void:
+	var burst := CritBurst.new()
+	burst.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	burst.custom_minimum_size = Vector2(160, 140)
+	burst.size = Vector2(160, 140)
+	_stage.add_child(burst)
+	if _arena != null:
+		burst.global_position = _arena.global_position + Vector2(160, 0)
+
+
+func _reveal(node: Control, delay: float) -> void:
+	node.modulate.a = 0.0
+	var tw := create_tween()
+	tw.tween_interval(delay)
+	tw.tween_property(node, "modulate:a", 1.0, 0.22)
+
+
+func _shake(amount: float = 8.0) -> void:
+	var tw := create_tween()
+	tw.tween_property(_stage, "position:x", amount, 0.03)
+	tw.tween_property(_stage, "position:x", -amount * 0.7, 0.03)
+	tw.tween_property(_stage, "position:x", 0.0, 0.05)
 
 
 func _finish_combat() -> void:
@@ -906,6 +1068,8 @@ func _buy_stat(index: int) -> void:
 	var item: Dictionary = _visit.stats[index]
 	if Rules.buy_merchant_stat(db, hero, _visit, index, _visit_rng):
 		_visit_note = "Bought %s." % str(item.name)
+		_float_num("-%d" % int(item.price), COL_BRASS, false)
+		_shake(6.0)
 	_render_merchant()
 
 
@@ -913,6 +1077,8 @@ func _buy_skill(index: int) -> void:
 	var card: Dictionary = _visit.skills[index]
 	if Rules.buy_merchant_skill(db, hero, _visit, index):
 		_visit_note = "Bought %s." % str(card.name)
+		_float_num("-%d" % int(card.price), _rarity_color(str(card.get("rarity", "comun"))), true)
+		_shake(8.0)
 	_render_merchant()
 
 
@@ -933,9 +1099,15 @@ func _show_end(win: bool, enemy: Dictionary) -> void:
 	_clear(_header)
 	_clear(_body)
 	_clear(_footer)
-	var lantern := Lantern.new()
-	lantern.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	_body.add_child(lantern)
+	var pair := HBoxContainer.new()
+	pair.alignment = BoxContainer.ALIGNMENT_CENTER
+	var chispa := ChispaMark.new()
+	chispa.custom_minimum_size = Vector2(84, 110)
+	var farol := FarolMark.new()
+	farol.custom_minimum_size = Vector2(72, 110)
+	pair.add_child(chispa)
+	pair.add_child(farol)
+	_body.add_child(pair)
 	var h := _label("Chapter cleared" if win else "The crossing ends", 30, COL_BRASS)
 	h.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_body.add_child(h)
@@ -1000,20 +1172,176 @@ func _show_end(win: bool, enemy: Dictionary) -> void:
 	_drive("end")
 
 
-class Lantern:
+class WardBg:
 	extends Control
-
-	func _ready() -> void:
-		custom_minimum_size = Vector2(88, 96)
-		mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var zone := 0
 
 	func _draw() -> void:
-		draw_circle(Vector2(44, 86), 22, Color(0, 0, 0, 0.35))
-		draw_rect(Rect2(36, 10, 16, 16), Color("c8743a"))
-		draw_circle(Vector2(44, 10), 7, Color("f6f1e7"))
-		draw_circle(Vector2(44, 50), 26, Color("e0b24a"))
-		draw_arc(Vector2(44, 50), 16, 0.4, 5.8, 18, Color("c8743a"), 3.0, true)
-		draw_circle(Vector2(35, 46), 3.5, Color("1a1410"))
-		draw_circle(Vector2(53, 46), 3.5, Color("1a1410"))
-		draw_arc(Vector2(44, 58), 8, 0.3, PI - 0.3, 10, Color("1a1410"), 2.0, true)
-		draw_colored_polygon(PackedVector2Array([Vector2(18, 78), Vector2(70, 78), Vector2(76, 90), Vector2(12, 90)]), Color("5fae9a"))
+		var sky := Color("1b1814") if zone == 0 else (Color("241910") if zone == 1 else Color("141820"))
+		draw_rect(Rect2(Vector2.ZERO, size), sky)
+		# Rebel pipes and roofs along the bottom. The gold tower is the empire, only in the last stretch.
+		var ground := Color("2a241c")
+		draw_rect(Rect2(0, size.y * 0.72, size.x, size.y), ground)
+		for i in 8:
+			var x := 30.0 + float(i) * (size.x / 7.0)
+			var h := 40.0 + float((i * 37) % 50)
+			draw_colored_polygon(PackedVector2Array([
+				Vector2(x, size.y * 0.72),
+				Vector2(x + 28, size.y * 0.72 - h),
+				Vector2(x + 56, size.y * 0.72),
+			]), Color("3a3128") if i % 2 == 0 else Color("4a3428"))
+			if i % 2 == 0:
+				draw_circle(Vector2(x + 28, size.y * 0.72 - h - 8), 5, Color("e07a3d"))
+		if zone >= 1:
+			draw_rect(Rect2(20, size.y * 0.42, size.x - 40, 14), Color("3f8f86"))
+			draw_rect(Rect2(20, size.y * 0.52, size.x * 0.6, 10), Color("c47a45"))
+		if zone >= 2:
+			var tx := size.x * 0.72
+			draw_colored_polygon(PackedVector2Array([
+				Vector2(tx, size.y * 0.72),
+				Vector2(tx + 36, size.y * 0.18),
+				Vector2(tx + 90, size.y * 0.72),
+			]), Color("e0b24a"))
+			draw_rect(Rect2(tx + 48, size.y * 0.16, 16, 18), Color("f6f0e4"))
+
+
+class ChispaMark:
+	extends Control
+
+	func _draw() -> void:
+		var s := size
+		var u := min(s.x / 78.0, s.y / 104.0)
+		var o := Vector2((s.x - 78.0 * u) * 0.5, s.y - 104.0 * u)
+		draw_set_transform(o, 0, Vector2(u, u))
+		# Boots and coat, olive with copper patches. Beret and furnace-orange scarf from the approved face.
+		draw_rect(Rect2(22, 78, 14, 16), Color("6b4a32"))
+		draw_rect(Rect2(42, 78, 14, 16), Color("6b4a32"))
+		draw_colored_polygon(PackedVector2Array([Vector2(20, 48), Vector2(58, 48), Vector2(62, 82), Vector2(16, 82)]), Color("5d6b52"))
+		draw_rect(Rect2(22, 54, 12, 10), Color("c47a45"))
+		draw_rect(Rect2(44, 62, 12, 8), Color("8a5a32"))
+		draw_rect(Rect2(30, 58, 18, 4), Color("c4a574"))
+		draw_colored_polygon(PackedVector2Array([Vector2(24, 46), Vector2(54, 46), Vector2(48, 58), Vector2(30, 58)]), Color("e07a3d"))
+		draw_circle(Vector2(39, 34), 14, Color("e0b48a"))
+		draw_colored_polygon(PackedVector2Array([Vector2(22, 36), Vector2(30, 18), Vector2(56, 22), Vector2(52, 40)]), Color("2a241c"))
+		draw_colored_polygon(PackedVector2Array([Vector2(20, 28), Vector2(34, 12), Vector2(58, 16), Vector2(52, 30)]), Color("5d6b52"))
+		draw_colored_polygon(PackedVector2Array([Vector2(34, 12), Vector2(50, 10), Vector2(56, 18), Vector2(40, 20)]), Color("8a5a32"))
+		draw_circle(Vector2(33, 34), 2.2, Color("2a241c"))
+		draw_circle(Vector2(45, 34), 2.2, Color("2a241c"))
+		draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
+
+
+class FarolMark:
+	extends Control
+
+	func _draw() -> void:
+		var s := size
+		var u := min(s.x / 64.0, s.y / 104.0)
+		var o := Vector2((s.x - 64.0 * u) * 0.5, s.y - 104.0 * u)
+		draw_set_transform(o, 0, Vector2(u, u))
+		# Hooded cloak, copper lantern frame (not the green concept frame).
+		draw_colored_polygon(PackedVector2Array([
+			Vector2(14, 36), Vector2(32, 18), Vector2(50, 36), Vector2(54, 88), Vector2(10, 88),
+		]), Color("8a8680"))
+		draw_colored_polygon(PackedVector2Array([
+			Vector2(18, 28), Vector2(32, 14), Vector2(46, 28), Vector2(42, 40), Vector2(22, 40),
+		]), Color("6e6a66"))
+		draw_rect(Rect2(18, 40, 28, 32), Color("c47a45"))
+		draw_rect(Rect2(22, 44, 20, 24), Color("2a241c"))
+		draw_colored_polygon(PackedVector2Array([Vector2(32, 46), Vector2(38, 56), Vector2(32, 66), Vector2(26, 56)]), Color("e07a3d"))
+		draw_circle(Vector2(29, 54), 1.4, Color("2a241c"))
+		draw_circle(Vector2(35, 54), 1.4, Color("2a241c"))
+		draw_rect(Rect2(28, 22, 8, 10), Color("3a3128"))
+		draw_circle(Vector2(30, 16), 4, Color("f6f0e4"))
+		draw_rect(Rect2(18, 88, 8, 8), Color("6b4a32"))
+		draw_rect(Rect2(38, 88, 8, 8), Color("6b4a32"))
+		draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
+
+
+class EnemyMark:
+	extends Control
+	var kind_id := ""
+	var tint := Color("a86848")
+
+	func _draw() -> void:
+		var s := size
+		var u := min(s.x / 96.0, s.y / 104.0)
+		var o := Vector2((s.x - 96.0 * u) * 0.5, s.y - 104.0 * u)
+		draw_set_transform(o, 0, Vector2(u, u))
+		var body := PackedVector2Array([Vector2(28, 40), Vector2(68, 40), Vector2(76, 86), Vector2(20, 86)])
+		match kind_id:
+			"blindado":
+				body = PackedVector2Array([Vector2(18, 36), Vector2(78, 36), Vector2(84, 90), Vector2(12, 90)])
+			"esquiva":
+				body = PackedVector2Array([Vector2(40, 24), Vector2(62, 36), Vector2(58, 90), Vector2(30, 84)])
+			"rapido":
+				body = PackedVector2Array([Vector2(34, 48), Vector2(62, 44), Vector2(66, 86), Vector2(30, 90)])
+			"regenera":
+				body = PackedVector2Array([Vector2(28, 48), Vector2(48, 28), Vector2(68, 48), Vector2(64, 88), Vector2(32, 88)])
+			"espinas":
+				body = PackedVector2Array([Vector2(48, 22), Vector2(70, 48), Vector2(62, 88), Vector2(34, 88), Vector2(26, 48)])
+			"pesado":
+				body = PackedVector2Array([Vector2(16, 50), Vector2(80, 46), Vector2(88, 92), Vector2(8, 92)])
+			"certero":
+				body = PackedVector2Array([Vector2(36, 30), Vector2(70, 36), Vector2(64, 88), Vector2(28, 88)])
+		draw_colored_polygon(body, tint)
+		draw_circle(Vector2(40, 52), 3, Color("1b1814"))
+		draw_circle(Vector2(54, 52), 3, Color("1b1814"))
+		if kind_id == "espinas":
+			draw_line(Vector2(48, 22), Vector2(48, 8), Color("e0b24a"), 3)
+		if kind_id == "certero":
+			draw_line(Vector2(70, 36), Vector2(90, 32), Color("f6f0e4"), 2)
+		draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
+
+
+class FamilyMark:
+	extends Control
+	var fam := "oxido"
+	var tint := Color("c47a45")
+
+	func _draw() -> void:
+		var c := size * 0.5
+		draw_circle(c, min(size.x, size.y) * 0.46, tint)
+		var ink := Color("1b1814")
+		match fam:
+			"oxido":
+				draw_circle(c + Vector2(0, 2), 6, ink)
+			"vapor":
+				draw_circle(c + Vector2(-4, 2), 4, ink)
+				draw_circle(c + Vector2(4, 0), 5, ink)
+			"tesla":
+				draw_colored_polygon(PackedVector2Array([c + Vector2(-2, -8), c + Vector2(4, -1), c + Vector2(0, -1), c + Vector2(3, 8), c + Vector2(-4, 1), c + Vector2(0, 1)]), ink)
+			"engranaje":
+				draw_arc(c, 6, 0, TAU, 8, ink, 2.0, true)
+			"reloj":
+				draw_arc(c, 6, 0, TAU, 12, ink, 1.5, true)
+				draw_line(c, c + Vector2(0, -5), ink, 1.5)
+			"alquimia":
+				draw_line(c + Vector2(0, -6), c + Vector2(0, 6), ink, 2)
+				draw_line(c + Vector2(-5, -2), c + Vector2(5, -2), ink, 2)
+			"iman":
+				draw_arc(c, 6, PI, TAU, 8, ink, 2.0, true)
+			"reso":
+				draw_arc(c + Vector2(0, 2), 5, PI * 1.1, TAU * 0.95, 8, ink, 2.0, true)
+			"auto":
+				draw_rect(Rect2(c + Vector2(-5, -5), Vector2(10, 10)), ink)
+			_:
+				draw_circle(c, 3, ink)
+
+
+class CritBurst:
+	extends Control
+	var life := 0.32
+
+	func _process(delta: float) -> void:
+		life -= delta
+		queue_redraw()
+		if life <= 0.0:
+			queue_free()
+
+	func _draw() -> void:
+		var t := 1.0 - clampf(life / 0.32, 0.0, 1.0)
+		var center := size * 0.62
+		for i in 8:
+			var ang := float(i) * TAU / 8.0
+			var p := center + Vector2(cos(ang), sin(ang)) * (18.0 + 46.0 * t)
+			draw_circle(p, 7.0 * (1.0 - t), Color("ffcb5c"))
