@@ -91,6 +91,13 @@ func _ready() -> void:
 		var query := str(JavaScriptBridge.eval("window.location.search", true))
 		if "autoplay" in query:
 			autoplay = true
+	var theme := Theme.new()
+	theme.set_default_font_size(26)
+	theme.set_font_size("font_size", "Label", 26)
+	theme.set_font_size("font_size", "Button", 26)
+	theme.set_font_size("font_size", "LineEdit", 28)
+	theme.set_font_size("normal_font_size", "RichTextLabel", 24)
+	set_theme(theme)
 	db = ContentDB.load_default()
 	ui_seed = _random_seed()
 	set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -150,9 +157,20 @@ func _fade() -> void:
 	_body.modulate.a = 0.0
 	var tw := create_tween()
 	tw.tween_property(_body, "modulate:a", 1.0, 0.16)
+	_fill_body()
 
 
-func _label(text: String, size := 18, color: Color = COL_TEXT, wrap := true) -> Label:
+func _fill_body() -> void:
+	var scroll := _body.get_parent() as ScrollContainer
+	if scroll == null:
+		return
+	await get_tree().process_frame
+	var height := scroll.size.y
+	if height > 40.0:
+		_body.custom_minimum_size.y = height
+
+
+func _label(text: String, size := 26, color: Color = COL_TEXT, wrap := true) -> Label:
 	var l := Label.new()
 	l.text = text
 	l.add_theme_font_size_override("font_size", size)
@@ -198,14 +216,14 @@ func _style_button(b: Button, fill: Color, border: Color, font: Color) -> void:
 	b.add_theme_color_override("font_hover_color", font)
 	b.add_theme_color_override("font_pressed_color", font)
 	b.add_theme_color_override("font_disabled_color", Color(font, 0.45))
-	b.add_theme_font_size_override("font_size", 18)
+	b.add_theme_font_size_override("font_size", 26)
 
 
 func _button(text: String, cb: Callable, primary := false) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	b.custom_minimum_size = Vector2(0, 56)
+	b.custom_minimum_size = Vector2(0, 72)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	if primary:
 		_style_button(b, COL_VERDIGRIS, Color("7dcec4"), COL_TEXT)
@@ -219,7 +237,7 @@ func _button(text: String, cb: Callable, primary := false) -> Button:
 func _bar(fill: Color) -> ProgressBar:
 	var b := ProgressBar.new()
 	b.show_percentage = false
-	b.custom_minimum_size = Vector2(0, 16)
+	b.custom_minimum_size = Vector2(0, 26)
 	var bg := StyleBoxFlat.new()
 	bg.bg_color = Color("0d0b09")
 	bg.set_corner_radius_all(6)
@@ -296,15 +314,15 @@ func _show_home() -> void:
 	_sync_zone()
 	var title := VBoxContainer.new()
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	title.add_child(_label("Vaporia", 34, COL_BRASS, false))
-	title.add_child(_label("Chapter 1 · The Boiler Ward", 16, COL_MUTED, false))
+	title.add_child(_label("Vaporia", 44, COL_BRASS, false))
+	title.add_child(_label("Chapter 1 · The Boiler Ward · 30 steps", 24, COL_TEXT, false))
 	row.add_child(title)
 	_header.add_child(row)
 	var intro := _panel()
 	var iv := VBoxContainer.new()
 	iv.add_theme_constant_override("separation", 6)
 	iv.add_child(_label("Chispa crosses the Boiler Ward with Farolillo, her lantern-snail, bumping along behind. Pick a humble tool. Fights play themselves. Then choose 1 of 3 skills from 10 families, spend nuts on your stats, and make the calls at statues, shrines, merchants, and wagers."))
-	iv.add_child(_label("No energy. No ads. No paid wheels.", 16, COL_MUTED))
+	iv.add_child(_label("No energy. No ads. No paid wheels.", 22, COL_MUTED))
 	intro.add_child(iv)
 	_body.add_child(intro)
 	_body.add_child(_label("1 · Choose your tool", 22, COL_BRASS))
@@ -331,7 +349,7 @@ func _show_home() -> void:
 	_seed_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_seed_edit.custom_minimum_size = Vector2(0, 52)
 	_seed_edit.add_theme_color_override("font_color", COL_BRASS)
-	_seed_edit.add_theme_font_size_override("font_size", 20)
+	_seed_edit.add_theme_font_size_override("font_size", 28)
 	seed_row.add_child(_seed_edit)
 	var roll := _button("New", func():
 		ui_seed = _random_seed()
@@ -342,7 +360,7 @@ func _show_home() -> void:
 	roll.size_flags_horizontal = Control.SIZE_SHRINK_END
 	seed_row.add_child(roll)
 	_footer.add_child(seed_row)
-	_footer.add_child(_label("Same seed, same choices, same run.", 15, COL_MUTED))
+	_footer.add_child(_label("Same seed, same choices, same run.", 22, COL_MUTED))
 	_footer.add_child(_button("Begin the crossing", func():
 		ui_seed = _seed_edit.text if _seed_edit else ui_seed
 		_start_run()
@@ -411,32 +429,35 @@ func _rarity_color(id: String) -> Color:
 	return RARITY_COLOR.get(id, COL_LINE)
 
 
+func _zone_name() -> String:
+	if step >= 20:
+		return "The Citadel"
+	if step >= 10:
+		return "The Works"
+	return "The Streets"
+
+
 func _paint_header() -> void:
 	_sync_zone()
 	_clear(_header)
-	var top := HBoxContainer.new()
 	var gear: Dictionary = db.gear_by_id[hero.gear]
 	var fam: Dictionary = db.family_by_id[gear.fam]
-	top.add_child(_label(str(gear.name), 18, Color(str(fam.color)), false))
-	var step_l := _label("Step %d/%d" % [maxi(1, step + 1), chapter.size()], 16, COL_MUTED, false)
-	step_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	step_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	top.add_child(step_l)
+	var top := HBoxContainer.new()
+	var zone := _label("Boiler Ward · " + _zone_name(), 22, COL_BRASS, false)
+	zone.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top.add_child(zone)
+	top.add_child(_label(str(gear.name), 22, Color(str(fam.color)), false))
 	_header.add_child(top)
-	var path := HFlowContainer.new()
-	path.add_theme_constant_override("h_separation", 3)
-	path.add_theme_constant_override("v_separation", 3)
-	var icons := {"combate": "·", "elite": "!", "minijefe": "M", "evento": "?", "campamento": "C", "mercader": "N", "jefe": "B"}
-	for i in chapter.size():
-		var mark := Label.new()
-		mark.text = icons.get(str(chapter[i]), "·")
-		mark.custom_minimum_size = Vector2(22, 22)
-		mark.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		var col := COL_BRASS if i == step else (COL_LINE if i > step else COL_MUTED)
-		mark.add_theme_color_override("font_color", col)
-		mark.add_theme_font_size_override("font_size", 14)
-		path.add_child(mark)
-	_header.add_child(path)
+	var shown := maxi(1, step + 1)
+	var total := maxi(1, chapter.size())
+	var step_l := _label("Step %d / %d" % [shown, total], 40, COL_TEXT, false)
+	_header.add_child(step_l)
+	var track := StepTrack.new()
+	track.chapter = chapter
+	track.here = step
+	track.custom_minimum_size = Vector2(0, 36)
+	_header.add_child(track)
+	_header.add_child(_label("Copper merchant · pale camp · gold boss", 18, COL_MUTED, false))
 	var hp := _bar(COL_HP)
 	hp.max_value = hero.max_hp
 	hp.value = max(0.0, hero.hp)
@@ -456,7 +477,7 @@ func _paint_header() -> void:
 		"Acc %s" % JsMath.fmt_p(float(st.acc)),
 	]
 	for bit in bits:
-		var l := _label(bit, 14, COL_MUTED, false)
+		var l := _label(bit, 22, COL_MUTED, false)
 		l.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		flow.add_child(l)
 	_header.add_child(flow)
@@ -497,9 +518,9 @@ func _render_offer(title: String) -> void:
 		sub = str(db.family_by_id[_offer_mode].name) + " family"
 	_body.add_child(_label(title, 24, COL_BRASS))
 	if sub != "":
-		_body.add_child(_label(sub, 15, COL_MUTED))
+		_body.add_child(_label(sub, 22, COL_MUTED))
 	if _banishing:
-		_body.add_child(_label("Tap a skill to banish it from this run.", 16, COL_ENEMY))
+		_body.add_child(_label("Tap a skill to banish it from this run.", 24, COL_ENEMY))
 	for i in _offer_cards.size():
 		var card: Dictionary = _offer_cards[i]
 		var idx := i
@@ -515,7 +536,7 @@ func _render_offer(title: String) -> void:
 			headline = str(card.name) + "\n" + headline
 		var b := _button(headline + "\n" + str(card.text), func(): _take_offer(idx))
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		b.custom_minimum_size = Vector2(0, 112)
+		b.custom_minimum_size = Vector2(0, 156)
 		var frame := _rarity_color(rarity) if str(card.kind) == "skill" else COL_LINE
 		if _banishing:
 			frame = COL_ENEMY
@@ -620,13 +641,13 @@ func _start_fight(kind: String, sub: int, cb: Callable) -> void:
 		var b := _button("x%d" % n, func():
 			speed = n
 		)
-		b.custom_minimum_size = Vector2(52, 44)
+		b.custom_minimum_size = Vector2(68, 60)
 		b.size_flags_horizontal = Control.SIZE_SHRINK_END
 		if n == speed:
 			_style_button(b, COL_PANEL2, COL_BRASS, COL_BRASS)
 		speeds.add_child(b)
 	var skip := _button("Skip", _finish_combat)
-	skip.custom_minimum_size = Vector2(84, 44)
+	skip.custom_minimum_size = Vector2(110, 60)
 	skip.size_flags_horizontal = Control.SIZE_SHRINK_END
 	speeds.add_child(skip)
 	head.add_child(speeds)
@@ -653,22 +674,22 @@ func _start_fight(kind: String, sub: int, cb: Callable) -> void:
 	_shield_bar.max_value = hero.max_hp
 	_shield_bar.value = 0
 	_body.add_child(_shield_bar)
-	_status = _label("", 15, COL_MUTED)
+	_status = _label("", 22, COL_MUTED)
 	_body.add_child(_status)
 	_ehp_bar = _bar(COL_ENEMY)
 	_ehp_bar.max_value = float(enemy.maxHp)
 	_ehp_bar.value = float(enemy.maxHp)
 	_body.add_child(_ehp_bar)
-	_turn_label = _label("Turn 0", 15, COL_MUTED)
+	_turn_label = _label("Turn 0", 22, COL_MUTED)
 	_turn_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_body.add_child(_turn_label)
 	_log_box = RichTextLabel.new()
 	_log_box.bbcode_enabled = true
 	_log_box.scroll_following = true
-	_log_box.custom_minimum_size = Vector2(0, 280)
+	_log_box.custom_minimum_size = Vector2(0, 220)
 	_log_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_log_box.add_theme_color_override("default_color", COL_TEXT)
-	_log_box.add_theme_font_size_override("normal_font_size", 16)
+	_log_box.add_theme_font_size_override("normal_font_size", 24)
 	var log_bg := StyleBoxFlat.new()
 	log_bg.bg_color = Color("100e0c")
 	log_bg.set_corner_radius_all(10)
@@ -726,11 +747,11 @@ func _fighter(name: String, sub: String, col: Color, kind: String) -> VBoxContai
 		e.custom_minimum_size = Vector2(96, 104)
 		art = e
 	box.add_child(art)
-	var n := _label(name, 16, COL_TEXT)
+	var n := _label(name, 24, COL_TEXT)
 	n.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(n)
 	if sub != "":
-		var s := _label(sub, 13, COL_MUTED)
+		var s := _label(sub, 22, COL_MUTED)
 		s.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		box.add_child(s)
 	return box
@@ -799,7 +820,7 @@ func _first_number(text: String) -> String:
 func _float_num(text: String, color: Color, on_enemy: bool) -> void:
 	var lab := Label.new()
 	lab.text = text
-	lab.add_theme_font_size_override("font_size", 28)
+	lab.add_theme_font_size_override("font_size", 42)
 	lab.add_theme_color_override("font_color", color)
 	lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_stage.add_child(lab)
@@ -868,7 +889,7 @@ func _finish_combat() -> void:
 		_drive("combat_done")
 		return
 	var note := "Won in %d turns · +%d nuts" % [int(res.turns), int(res.coins)]
-	_after.add_child(_label(note, 15, COL_MUTED))
+	_after.add_child(_label(note, 22, COL_MUTED))
 	var label := "Choose a skill"
 	if _combat_kind == "elite":
 		label = "Elite reward"
@@ -907,19 +928,19 @@ func _show_event(ev: Dictionary, bought: int, last_msg := "") -> void:
 	var cat := str(db.categories.get(ev.cat, ""))
 	if str(ev.rarity) != "comun":
 		cat += " · " + str(db.rarities[ev.rarity].name)
-	var cat_l := _label(cat.to_upper(), 13, COL_MUTED)
+	var cat_l := _label(cat.to_upper(), 22, COL_MUTED)
 	cat_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_body.add_child(cat_l)
 	var title := _label(str(ev.title), 26, COL_BRASS)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_body.add_child(title)
-	var text := _label(str(ev.text), 17, COL_TEXT)
+	var text := _label(str(ev.text), 24, COL_TEXT)
 	text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_body.add_child(text)
 	if ev.get("shop"):
-		_body.add_child(_label("Shop: you can buy up to %d times (%d/%d). Each purchase of a stat costs more." % [int(db.bal.shopMax), bought, int(db.bal.shopMax)], 15, COL_MUTED))
+		_body.add_child(_label("Shop: you can buy up to %d times (%d/%d). Each purchase of a stat costs more." % [int(db.bal.shopMax), bought, int(db.bal.shopMax)], 22, COL_MUTED))
 	if last_msg != "":
-		_body.add_child(_label(last_msg, 16, COL_HP))
+		_body.add_child(_label(last_msg, 24, COL_HP))
 	for i in ev.choices.size():
 		var c: Dictionary = ev.choices[i]
 		var idx: int = i
@@ -938,7 +959,7 @@ func _show_event(ev: Dictionary, bought: int, last_msg := "") -> void:
 		var b := _button(shown + "\n" + detail, func(): _pick_event(ev, idx, bought))
 		b.disabled = not ok
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		b.custom_minimum_size = Vector2(0, 84)
+		b.custom_minimum_size = Vector2(0, 116)
 		_body.add_child(b)
 	_fade()
 	_drive("event")
@@ -1015,13 +1036,13 @@ func _render_merchant() -> void:
 	var title := _label(str(db.merchant.title), 26, COL_BRASS)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_body.add_child(title)
-	var intro := _label(str(db.merchant.intro), 16, COL_MUTED)
+	var intro := _label(str(db.merchant.intro), 22, COL_MUTED)
 	intro.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_body.add_child(intro)
-	_body.add_child(_label("%s. %s" % [str(tier.name), str(tier.blurb)], 16, COL_TEXT))
-	_body.add_child(_label("You have %d nuts. Stats %d/%d.%s" % [int(hero.coins), int(_visit.stat_buys), int(db.merchant.maxStatBuys), " Skill bought." if _visit.skill_bought else ""], 16, COL_BRASS))
+	_body.add_child(_label("%s. %s" % [str(tier.name), str(tier.blurb)], 24, COL_TEXT))
+	_body.add_child(_label("You have %d nuts. Stats %d/%d.%s" % [int(hero.coins), int(_visit.stat_buys), int(db.merchant.maxStatBuys), " Skill bought." if _visit.skill_bought else ""], 24, COL_BRASS))
 	if _visit_note != "":
-		_body.add_child(_label(_visit_note, 16, COL_HP))
+		_body.add_child(_label(_visit_note, 24, COL_HP))
 	_body.add_child(_label("Stat upgrades", 20, COL_BRASS))
 	for i in _visit.stats.size():
 		var item: Dictionary = _visit.stats[i]
@@ -1031,11 +1052,11 @@ func _render_merchant() -> void:
 		var b := _button("%s\n%s\n%d nuts" % [item.name, item.text, price], func(): _buy_stat(idx))
 		b.disabled = not affordable
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		b.custom_minimum_size = Vector2(0, 88)
+		b.custom_minimum_size = Vector2(0, 124)
 		_body.add_child(b)
 	_body.add_child(_label("One skill", 20, COL_BRASS))
 	if _visit.skills.is_empty():
-		_body.add_child(_label("Nothing on the pegs.", 16, COL_MUTED))
+		_body.add_child(_label("Nothing on the pegs.", 22, COL_MUTED))
 	for i in _visit.skills.size():
 		var card: Dictionary = _visit.skills[i]
 		var idx: int = i
@@ -1051,7 +1072,7 @@ func _render_merchant() -> void:
 		var b := _button("%s\n%s · %s\n%s\n%d nuts" % [card.name, db.rarities[rarity].name, fam, card.text, price], func(): _buy_skill(idx))
 		b.disabled = not affordable
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		b.custom_minimum_size = Vector2(0, 108)
+		b.custom_minimum_size = Vector2(0, 148)
 		_style_button(b, COL_PANEL2, col, COL_TEXT)
 		_body.add_child(b)
 	var refresh_price := Rules.merchant_refresh_price(db, _visit)
@@ -1126,8 +1147,8 @@ func _show_end(win: bool, enemy: Dictionary) -> void:
 	var panel := _panel()
 	var pv := VBoxContainer.new()
 	var gear: Dictionary = db.gear_by_id[hero.gear]
-	pv.add_child(_label("Seed %s" % seed, 16, COL_BRASS))
-	pv.add_child(_label("%s · enemies %d · turns %d · events %d · %d nuts left" % [gear.name, kills, turns_sum, events_n, int(hero.coins)], 16, COL_TEXT))
+	pv.add_child(_label("Seed %s" % seed, 24, COL_BRASS))
+	pv.add_child(_label("%s · enemies %d · turns %d · events %d · %d nuts left" % [gear.name, kills, turns_sum, events_n, int(hero.coins)], 24, COL_TEXT))
 	if hero:
 		var st: Dictionary = hero.stats()
 		pv.add_child(_label("HP %s   Atk %s   Def %s" % [JsMath.fmt_n(float(st.maxHp)), JsMath.fmt_n(float(st.atk)), JsMath.fmt_n(float(st.def))], 16))
@@ -1136,20 +1157,20 @@ func _show_end(win: bool, enemy: Dictionary) -> void:
 	_body.add_child(panel)
 	_body.add_child(_label("Your build", 20, COL_BRASS))
 	if hero.skills.is_empty():
-		_body.add_child(_label("No skills.", 16, COL_MUTED))
+		_body.add_child(_label("No skills.", 22, COL_MUTED))
 	for id in hero.skills.keys():
 		var sk: Dictionary = db.skill_by_id[id]
 		_body.add_child(_label("%s  %d/%d · %s" % [sk.name, int(hero.skills[id]), int(sk.max), db.family_by_id[sk.fam].name], 16))
 	for id in hero.blessings:
-		_body.add_child(_label("Blessing · " + str(db.blessings[id].name), 16, COL_BRASS))
+		_body.add_child(_label("Blessing · " + str(db.blessings[id].name), 24, COL_BRASS))
 	for id in hero.curses:
-		_body.add_child(_label("Curse · " + str(db.curses[id].name), 16, COL_ENEMY))
+		_body.add_child(_label("Curse · " + str(db.curses[id].name), 24, COL_ENEMY))
 	_body.add_child(_label("Damage by source", 20, COL_BRASS))
 	var total := 0.0
 	for k in dmg_all.keys():
 		total += float(dmg_all[k])
 	if total <= 0.0:
-		_body.add_child(_label("No damage recorded.", 16, COL_MUTED))
+		_body.add_child(_label("No damage recorded.", 22, COL_MUTED))
 	var keys: Array = dmg_all.keys()
 	keys.sort_custom(func(a, b): return float(dmg_all[a]) > float(dmg_all[b]))
 	for k in keys:
@@ -1170,6 +1191,38 @@ func _show_end(win: bool, enemy: Dictionary) -> void:
 	_footer.add_child(row)
 	_fade()
 	_drive("end")
+
+
+class StepTrack:
+	extends Control
+	var chapter: Array = []
+	var here := -1
+
+	func _draw() -> void:
+		var count := chapter.size()
+		if count <= 0:
+			return
+		var y := size.y * 0.35
+		var bar_h := 14.0
+		draw_rect(Rect2(0, y, size.x, bar_h), Color("100e0c"))
+		var filled := clampf(float(here + 1) / float(count), 0.0, 1.0)
+		draw_rect(Rect2(0, y, size.x * filled, bar_h), Color("2f8f84"))
+		for i in count:
+			var kind := str(chapter[i])
+			var mark := Color(0, 0, 0, 0)
+			if kind == "mercader":
+				mark = Color("c47a45")
+			elif kind == "campamento":
+				mark = Color("f6f0e4")
+			elif kind == "jefe" or kind == "minijefe":
+				mark = Color("e0b24a")
+			else:
+				continue
+			var x := size.x * (float(i) + 0.5) / float(count)
+			draw_rect(Rect2(x - 4.0, y - 6.0, 8.0, bar_h + 12.0), mark)
+		if here >= 0:
+			var x := size.x * (float(here) + 0.5) / float(count)
+			draw_line(Vector2(x, y - 8.0), Vector2(x, y + bar_h + 8.0), Color("f6f0e4"), 3.0)
 
 
 class WardBg:
