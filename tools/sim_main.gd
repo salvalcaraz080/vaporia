@@ -53,6 +53,18 @@ func _init() -> void:
 	for res in out.results:
 		print("== %s win %s%% | fights %s | skill levels %s | unspent tuercas %s" % [res.policy, res.winRate, res.avgFights, res.avgSkillLevels, res.tuercas])
 		print("  deaths: %s" % JSON.stringify(res.deathSegments))
+		var death_n := 0
+		var worst_pct := 0.0
+		var worst_step := 0
+		for step_key in res.deathsByStep.keys():
+			death_n += int(res.deathsByStep[step_key])
+		if death_n > 0:
+			for step_key in res.deathsByStep.keys():
+				var pct := 100.0 * float(res.deathsByStep[step_key]) / float(death_n)
+				if pct > worst_pct:
+					worst_pct = pct
+					worst_step = int(step_key)
+		print("  worst death step %d at %.1f%% of deaths" % [worst_step, worst_pct])
 		print("  final: %s" % JSON.stringify(res.finalStats))
 		var worst := ""
 		if smoke and float(res.winRate) < 0.0:

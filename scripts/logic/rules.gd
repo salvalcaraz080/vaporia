@@ -217,9 +217,16 @@ static func _candidates(h: HeroState, mode: String) -> Array:
 			continue
 		if mode == "epica" and str(s.rarity) != "epica" and str(s.rarity) != "legendaria":
 			continue
+		var rarity_id := str(s.rarity)
 		if fam_mode and str(s.fam) != mode and not (s.has("syn") and s.syn.has(mode)):
 			continue
 		var w := float(rarity.weight)
+		if mode == "rising" and rarity_id == "comun":
+			w *= 0.4
+		elif mode == "rising" and rarity_id == "rara":
+			w *= 1.6
+		elif mode == "rising" and (rarity_id == "epica" or rarity_id == "legendaria"):
+			w *= 2.2
 		if str(s.fam) == gfam or (s.has("syn") and s.syn.has(gfam)):
 			w *= float(db.bal.gearOfferMult)
 		w *= 1.0 + 0.2 * float(mini(h.fam_count(str(s.fam)), 5))
@@ -240,4 +247,138 @@ static func _all_owned(h: HeroState, fams: Array) -> bool:
 	for f in fams:
 		if not h.fam_owned(str(f)):
 			return false
+	return true
+
+
+# ---------- Fixed merchant (the only place nuts are spent) ----------
+
+static func merchant_tier(db: ContentDB, step: int) -> Dictionary:
+	var tiers: Array = db.merchant.tiers
+	for tier in tiers:
+		if step <= int(tier.untilStep):
+			return tier
+	return tiers[tiers.size() - 1]
+
+
+static func open_merchant(db: ContentDB, h: HeroState, step: int, rng: SeededRng) -> Dictionary:
+	var visit := {
+		"step": step,
+		"stat_buys": 0,
+		"skill_bought": false,
+		"refreshes": 0,
+		"stats": [],
+		"skills": [],
+	}
+	_fill_merchant(db, h, visit, rng)
+	return visit
+
+
+static func merchant_refresh_price(db: ContentDB, visit: Dictionary) -> int:
+	var tier := merchant_tier(db, int(visit.step))
+	return int(tier.refresh) + 12 * int(visit.refreshes)
+
+
+static func _fill_merchant(db: ContentDB, h: HeroState, visit: Dictionary, rng: SeededRng) -> void:
+	var tier := merchant_tier(db, int(visit.step))
+	var pool: Array = tier.stats.keys()
+	pool = pool.duplicate()
+	for i in range(pool.size() - 1, 0, -1):
+		var j := rng.pick_index(i + 1)
+		var tmp = pool[i]
+		pool[i] = pool[j]
+		pool[j] = tmp
+	var stats: Array = []
+	var nstats := mini(int(db.merchant.statSlots), pool.size())
+	for i in nstats:
+		var id := str(pool[i])
+		var def: Dictionary = tier.stats[id]
+		var info: Dictionary = db.stat_buy[id]
+		stats.append({
+			"id": id,
+			"name": str(info.name),
+			"text": str(def.text),
+			"fx": def.fx,
+			"price": _stat_price(db, h, tier, id),
+		})
+	visit.stats = stats
+	visit.skills = _roll_skills(db, h, tier, rng)
+
+
+static func _stat_price(db: ContentDB, h: HeroState, tier: Dictionary, id: String) -> int:
+	var base := int(tier.stats[id].price)
+	return base + int(db.merchant.repeatStep) * int(h.bought.get(id, 0))
+
+
+static func _roll_skills(db: ContentDB, h: HeroState, tier: Dictionary, rng: SeededRng) -> Array:
+	var want := int(db.merchant.skillSlots)
+	var out: Array = []
+	var seen := {}
+	var guard := 0
+	while out.size() < want and guard < 4:
+		guard += 1
+		var cards := make_offer(h, rng, str(tier.skillMode))
+		for c in cards:
+			if str(c.kind) != "skill":
+				continue
+			if seen.has(c.id):
+				continue
+			seen[c.id] = true
+			var priced: Dictionary = c.duplicate()
+			var rarity := str(c.rarity)
+			priced["price"] = int(tier.skillPrice[rarity])
+			out.append(priced)
+			if out.size() >= want:
+				break
+	return out
+
+
+static func reprice_merchant(db: ContentDB, h: HeroState, visit: Dictionary) -> void:
+	var tier := merchant_tier(db, int(visit.step))
+	for s in visit.stats:
+		s.price = _stat_price(db, h, tier, str(s.id))
+
+
+static func buy_merchant_stat(db: ContentDB, h: HeroState, visit: Dictionary, index: int, rng: SeededRng) -> bool:
+	if int(visit.stat_buys) >= int(db.merchant.maxStatBuys):
+		return false
+	if index < 0 or index >= visit.stats.size():
+		return false
+	var item: Dictionary = visit.stats[index]
+	var price := int(item.price)
+	if h.coins < float(price):
+		return false
+	h.coins -= float(price)
+	var id := str(item.id)
+	h.bought[id] = int(h.bought.get(id, 0)) + 1
+	visit.stat_buys = int(visit.stat_buys) + 1
+	h.apply_fx(item.fx, rng)
+	reprice_merchant(db, h, visit)
+	return true
+
+
+static func buy_merchant_skill(db: ContentDB, h: HeroState, visit: Dictionary, index: int) -> bool:
+	if visit.skill_bought:
+		return false
+	if index < 0 or index >= visit.skills.size():
+		return false
+	var card: Dictionary = visit.skills[index]
+	var price := int(card.price)
+	if h.coins < float(price):
+		return false
+	h.coins -= float(price)
+	take_card(h, card)
+	visit.skill_bought = true
+	card["taken"] = true
+	return true
+
+
+static func refresh_merchant(db: ContentDB, h: HeroState, visit: Dictionary, rng: SeededRng) -> bool:
+	if int(visit.refreshes) >= int(db.merchant.maxRefreshes):
+		return false
+	var price := merchant_refresh_price(db, visit)
+	if h.coins < float(price):
+		return false
+	h.coins -= float(price)
+	visit.refreshes = int(visit.refreshes) + 1
+	_fill_merchant(db, h, visit, rng)
 	return true
