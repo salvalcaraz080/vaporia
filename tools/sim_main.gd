@@ -46,6 +46,9 @@ func _init() -> void:
 		profile = Profile.fresh(db)
 	elif profile_name == "mid":
 		profile = Profile.mid(db)
+		profile.recenter = true
+	elif profile_name == "capped":
+		profile = Profile.capped(db)
 	elif profile_name != "":
 		push_error("unknown profile " + profile_name)
 		quit(1)

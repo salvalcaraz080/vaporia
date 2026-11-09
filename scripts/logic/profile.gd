@@ -13,6 +13,8 @@ var tools: Dictionary = {}
 var skills: Dictionary = {}
 var chassis: Dictionary = {"atk": 0, "hp": 0, "def": 0}
 var restrict := true
+## When set, a family-on sim rebuilds this budget around the equipped family.
+var recenter := false
 
 
 static func fresh(content: ContentDB):
@@ -45,6 +47,74 @@ static func mid(content: ContentDB):
 	for sid in meta.get("midUnlocks", []):
 		if p.skills.has(sid):
 			p.skills[sid].unlocked = true
+	return p
+
+
+## Same chassis and unlock depth as mid(), pointed at one family so own-gear
+## rates compare the families instead of a rust-leaning shopping list.
+static func mid_for(content: ContentDB, fam_id: String):
+	var p = fresh(content)
+	p.chassis.atk = 2
+	p.chassis.hp = 1
+	p.scrap_earned = 520
+	var gear_id := ""
+	for g in content.gears:
+		if str(g.fam) == fam_id:
+			gear_id = str(g.id)
+			break
+	if gear_id != "" and p.tools.has(gear_id):
+		p.tools[gear_id].unlocked = true
+		p.tools[gear_id].rank = 1
+	var rares := 0
+	var start_id := ""
+	for s in content.skills:
+		if str(s.fam) != fam_id:
+			continue
+		var sid := str(s.id)
+		if not p.skills.has(sid):
+			continue
+		if start_id == "" and str(s.rarity) == "comun":
+			start_id = sid
+		if str(s.rarity) == "rara" and rares < 3:
+			p.skills[sid].unlocked = true
+			rares += 1
+	if gear_id != "":
+		var g: Dictionary = content.gear_by_id[gear_id]
+		start_id = str(g.start)
+	if start_id != "" and p.skills.has(start_id):
+		p.skills[start_id].effectRank = 1
+	return p
+
+
+## Design ceiling: chassis full, every tool unlocked, five tools at rank 3,
+## the whole catalog open, effect rank 1. Start-level ranks stay at 0.
+static func capped(content: ContentDB):
+	var p = fresh(content)
+	p.chassis.atk = 5
+	p.chassis.hp = 5
+	p.chassis.def = 3
+	p.scrap_earned = 2000
+	var ranked := 0
+	for g in content.gears:
+		var id := str(g.id)
+		p.tools[id].unlocked = true
+		if ranked < 5:
+			p.tools[id].rank = 3
+			ranked += 1
+	var ranked_starts := {}
+	var seen := 0
+	for g in content.gears:
+		if seen >= 5:
+			break
+		ranked_starts[str(g.start)] = true
+		seen += 1
+	for s in content.skills:
+		var sid := str(s.id)
+		p.skills[sid].unlocked = true
+		if ranked_starts.has(sid):
+			p.skills[sid].effectRank = 1
+	# Greedy should play the five ranked tools, not a rank-0 spare.
+	p.restrict = true
 	return p
 
 
@@ -148,10 +218,18 @@ func tool_unlocked(id: String) -> bool:
 
 func unlocked_tool_ids() -> Array:
 	var out: Array = []
+	var ranked_only := false
+	for id in tools.keys():
+		if int(tools[id].rank) >= 3:
+			ranked_only = true
+			break
 	for g in db.gears:
 		var id := str(g.id)
-		if tool_unlocked(id):
-			out.append(id)
+		if not tool_unlocked(id):
+			continue
+		if ranked_only and int(tools[id].rank) < 3:
+			continue
+		out.append(id)
 	return out
 
 
