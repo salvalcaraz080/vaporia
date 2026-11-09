@@ -129,6 +129,15 @@ func skill_unlocked(id: String) -> bool:
 	return bool(skills[id].unlocked)
 
 
+func family_open(fam_id: String) -> bool:
+	if not restrict:
+		return true
+	for g in db.gears:
+		if str(g.fam) == fam_id and tool_unlocked(str(g.id)):
+			return true
+	return false
+
+
 func tool_unlocked(id: String) -> bool:
 	if not restrict:
 		return true
@@ -329,6 +338,8 @@ func can_buy_rare(id: String) -> bool:
 		return false
 	var sk: Dictionary = db.skill_by_id[id]
 	if str(sk.rarity) != "rara":
+		return false
+	if not family_open(str(sk.fam)):
 		return false
 	var cap := int(db.meta.get("unlock", {}).get("v1RareCap", 3))
 	if rare_buys() >= cap:

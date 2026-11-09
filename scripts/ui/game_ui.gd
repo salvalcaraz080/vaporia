@@ -373,6 +373,8 @@ func _show_workshop() -> void:
 	for s in db.skills:
 		if str(s.rarity) != "rara":
 			continue
+		if not profile.family_open(str(s.fam)):
+			continue
 		var sid := str(s.id)
 		if profile.skill_unlocked(sid):
 			continue
