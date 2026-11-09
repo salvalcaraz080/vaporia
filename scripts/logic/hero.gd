@@ -30,6 +30,7 @@ var unlocked: Dictionary = {}
 var open_families: Dictionary = {}
 var start_ranks: Dictionary = {}
 var effect_mods: Dictionary = {}
+var character_level := 1
 
 
 static func create(content: ContentDB, gear_id: String, profile = null):
@@ -49,10 +50,12 @@ static func create(content: ContentDB, gear_id: String, profile = null):
 	h.banish_n = int(b.startBanish)
 	var g: Dictionary = content.gear_by_id[gear_id]
 	if profile != null:
-		h.atk += float(profile.chassis_atk())
-		h.max_hp += float(profile.chassis_hp())
+		var grown: Dictionary = profile.level_bonus()
+		h.character_level = int(profile.character_level())
+		h.atk += float(profile.chassis_atk()) + float(grown.atk)
+		h.max_hp += float(profile.chassis_hp()) + float(grown.hp)
 		h.hp = h.max_hp
-		h.defense += float(profile.chassis_def())
+		h.defense += float(profile.chassis_def()) + float(grown.def)
 		h.tool_bonus = float(profile.tool_bonus(gear_id))
 		h.use_unlocks = true
 		for g2 in content.gears:
@@ -141,9 +144,13 @@ func set_level(id: String, lv: int) -> void:
 func skill_allowed(id: String) -> bool:
 	if not use_unlocks:
 		return true
-	if not unlocked.has(id):
-		return false
 	var sk: Dictionary = db.skill_by_id[id]
+	var gate := int(sk.get("requiredLevel", 0))
+	if gate > 0:
+		if character_level < gate:
+			return false
+	elif not unlocked.has(id):
+		return false
 	if not open_families.has(str(sk.fam)):
 		return false
 	if sk.has("syn"):

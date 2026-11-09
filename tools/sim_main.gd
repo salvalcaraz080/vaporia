@@ -58,7 +58,8 @@ func _init() -> void:
 		for s in db.skills:
 			if profile.skill_unlocked(str(s.id)):
 				open_n += 1
-		print("profile %s tools %d skills %d" % [profile_name, profile.unlocked_tool_ids().size(), open_n])
+		var grown: Dictionary = profile.level_bonus()
+		print("profile %s level %d (+%d HP +%d atk +%d def) tools %d skills %d" % [profile_name, profile.character_level(), int(grown.hp), int(grown.atk), int(grown.def), profile.unlocked_tool_ids().size(), open_n])
 	if matrix:
 		policies = ["greedy"]
 		for fam in db.families:
