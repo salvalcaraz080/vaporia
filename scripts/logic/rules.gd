@@ -229,6 +229,8 @@ static func _candidates(h: HeroState, mode: String) -> Array:
 			w *= 2.2
 		if str(s.fam) == gfam or (s.has("syn") and s.syn.has(gfam)):
 			w *= float(db.bal.gearOfferMult)
+		if h.focus_fam != "" and (str(s.fam) == h.focus_fam or (s.has("syn") and s.syn.has(h.focus_fam))):
+			w *= 2.4
 		w *= 1.0 + 0.2 * float(mini(h.fam_count(str(s.fam)), 5))
 		if h.level(sid) > 0:
 			w *= 1.3

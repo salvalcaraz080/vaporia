@@ -321,7 +321,7 @@ func _show_home() -> void:
 	var intro := _panel()
 	var iv := VBoxContainer.new()
 	iv.add_theme_constant_override("separation", 6)
-	iv.add_child(_label("Chispa crosses the Boiler Ward with Farolillo, her lantern-snail, bumping along behind. Pick a humble tool. Fights play themselves. Then choose 1 of 3 skills from 7 families, spend nuts on your stats, and make the calls at statues, shrines, merchants, and wagers."))
+	iv.add_child(_label("Chispa, a small repair-bot, crosses the Boiler Ward with Farolillo, her lantern-bot, bumping along behind. Pick a humble tool. Fights play themselves. Then choose 1 of 3 skills from 8 families, spend nuts on your stats, and make the calls at statues, shrines, merchants, and wagers."))
 	iv.add_child(_label("No energy. No ads. No paid wheels.", 22, COL_MUTED))
 	intro.add_child(iv)
 	_body.add_child(intro)
@@ -1274,12 +1274,15 @@ class ChispaMark:
 		draw_rect(Rect2(44, 62, 12, 8), Color("8a5a32"))
 		draw_rect(Rect2(30, 58, 18, 4), Color("c4a574"))
 		draw_colored_polygon(PackedVector2Array([Vector2(24, 46), Vector2(54, 46), Vector2(48, 58), Vector2(30, 58)]), Color("e07a3d"))
-		draw_circle(Vector2(39, 34), 14, Color("e0b48a"))
+		draw_circle(Vector2(39, 34), 14, Color("c47a45"))
 		draw_colored_polygon(PackedVector2Array([Vector2(22, 36), Vector2(30, 18), Vector2(56, 22), Vector2(52, 40)]), Color("2a241c"))
 		draw_colored_polygon(PackedVector2Array([Vector2(20, 28), Vector2(34, 12), Vector2(58, 16), Vector2(52, 30)]), Color("5d6b52"))
 		draw_colored_polygon(PackedVector2Array([Vector2(34, 12), Vector2(50, 10), Vector2(56, 18), Vector2(40, 20)]), Color("8a5a32"))
-		draw_circle(Vector2(33, 34), 2.2, Color("2a241c"))
-		draw_circle(Vector2(45, 34), 2.2, Color("2a241c"))
+		draw_rect(Rect2(27, 32, 24, 7), Color("1b1814"))
+		draw_circle(Vector2(33, 35), 2.2, Color("e07a3d"))
+		draw_circle(Vector2(45, 35), 2.2, Color("e07a3d"))
+		draw_circle(Vector2(22, 58), 1.8, Color("c4a574"))
+		draw_circle(Vector2(56, 66), 1.8, Color("c4a574"))
 		draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
 
 
@@ -1299,6 +1302,8 @@ class FarolMark:
 			Vector2(18, 28), Vector2(32, 14), Vector2(46, 28), Vector2(42, 40), Vector2(22, 40),
 		]), Color("6e6a66"))
 		draw_rect(Rect2(18, 40, 28, 32), Color("c47a45"))
+		draw_circle(Vector2(20, 42), 1.6, Color("8a5a32"))
+		draw_circle(Vector2(44, 42), 1.6, Color("8a5a32"))
 		draw_rect(Rect2(22, 44, 20, 24), Color("2a241c"))
 		draw_colored_polygon(PackedVector2Array([Vector2(32, 46), Vector2(38, 56), Vector2(32, 66), Vector2(26, 56)]), Color("e07a3d"))
 		draw_circle(Vector2(29, 54), 1.4, Color("2a241c"))
@@ -1337,8 +1342,11 @@ class EnemyMark:
 			"certero":
 				body = PackedVector2Array([Vector2(36, 30), Vector2(70, 36), Vector2(64, 88), Vector2(28, 88)])
 		draw_colored_polygon(body, tint)
-		draw_circle(Vector2(40, 52), 3, Color("1b1814"))
-		draw_circle(Vector2(54, 52), 3, Color("1b1814"))
+		draw_rect(Rect2(30, 46, 36, 10), Color("1b1814"))
+		draw_circle(Vector2(40, 51), 3, Color("e07a3d"))
+		draw_circle(Vector2(54, 51), 3, Color("e07a3d"))
+		draw_circle(Vector2(26, 62), 2, Color("c4a574"))
+		draw_circle(Vector2(70, 62), 2, Color("c4a574"))
 		if kind_id == "espinas":
 			draw_line(Vector2(48, 22), Vector2(48, 8), Color("e0b24a"), 3)
 		if kind_id == "certero":
@@ -1348,7 +1356,7 @@ class EnemyMark:
 
 class FamilyMark:
 	extends Control
-	var fam := "vitriol"
+	var fam := "rust"
 	var tint := Color("b5c94e")
 
 	func _draw() -> void:
@@ -1356,14 +1364,17 @@ class FamilyMark:
 		draw_circle(c, min(size.x, size.y) * 0.46, tint)
 		var ink := Color("1b1814")
 		match fam:
-			"vitriol":
-				draw_circle(c + Vector2(0, 3), 5, ink)
-				draw_line(c + Vector2(0, -7), c + Vector2(0, 0), ink, 2)
+			"rust":
+				draw_circle(c + Vector2(0, 2), 6, ink)
+				draw_circle(c + Vector2(-4, -2), 2, ink)
+			"tesla":
+				draw_colored_polygon(PackedVector2Array([c + Vector2(-2, -8), c + Vector2(4, -1), c + Vector2(0, -1), c + Vector2(3, 8), c + Vector2(-4, 1), c + Vector2(0, 1)]), ink)
+			"salvage":
+				draw_rect(Rect2(c + Vector2(-6, -2), Vector2(12, 4)), ink)
+				draw_rect(Rect2(c + Vector2(-2, -6), Vector2(4, 12)), ink)
 			"vapor":
 				draw_circle(c + Vector2(-4, 2), 4, ink)
 				draw_circle(c + Vector2(4, 0), 5, ink)
-			"galvanism":
-				draw_colored_polygon(PackedVector2Array([c + Vector2(-2, -8), c + Vector2(4, -1), c + Vector2(0, -1), c + Vector2(3, 8), c + Vector2(-4, 1), c + Vector2(0, 1)]), ink)
 			"remache":
 				draw_circle(c + Vector2(-5, 0), 3, ink)
 				draw_circle(c + Vector2(5, 0), 3, ink)

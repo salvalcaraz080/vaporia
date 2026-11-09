@@ -23,6 +23,7 @@ var mods: Dictionary = {}
 var blessings: Array = []
 var curses: Array = []
 var bought: Dictionary = {}
+var focus_fam: String = ""
 
 
 static func create(content: ContentDB, gear_id: String):
