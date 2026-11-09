@@ -321,7 +321,7 @@ func _show_home() -> void:
 	var intro := _panel()
 	var iv := VBoxContainer.new()
 	iv.add_theme_constant_override("separation", 6)
-	iv.add_child(_label("Chispa crosses the Boiler Ward with Farolillo, her lantern-snail, bumping along behind. Pick a humble tool. Fights play themselves. Then choose 1 of 3 skills from 10 families, spend nuts on your stats, and make the calls at statues, shrines, merchants, and wagers."))
+	iv.add_child(_label("Chispa crosses the Boiler Ward with Farolillo, her lantern-snail, bumping along behind. Pick a humble tool. Fights play themselves. Then choose 1 of 3 skills from 7 families, spend nuts on your stats, and make the calls at statues, shrines, merchants, and wagers."))
 	iv.add_child(_label("No energy. No ads. No paid wheels.", 22, COL_MUTED))
 	intro.add_child(iv)
 	_body.add_child(intro)
@@ -1348,31 +1348,28 @@ class EnemyMark:
 
 class FamilyMark:
 	extends Control
-	var fam := "oxido"
-	var tint := Color("c47a45")
+	var fam := "vitriol"
+	var tint := Color("b5c94e")
 
 	func _draw() -> void:
 		var c := size * 0.5
 		draw_circle(c, min(size.x, size.y) * 0.46, tint)
 		var ink := Color("1b1814")
 		match fam:
-			"oxido":
-				draw_circle(c + Vector2(0, 2), 6, ink)
+			"vitriol":
+				draw_circle(c + Vector2(0, 3), 5, ink)
+				draw_line(c + Vector2(0, -7), c + Vector2(0, 0), ink, 2)
 			"vapor":
 				draw_circle(c + Vector2(-4, 2), 4, ink)
 				draw_circle(c + Vector2(4, 0), 5, ink)
-			"tesla":
+			"galvanism":
 				draw_colored_polygon(PackedVector2Array([c + Vector2(-2, -8), c + Vector2(4, -1), c + Vector2(0, -1), c + Vector2(3, 8), c + Vector2(-4, 1), c + Vector2(0, 1)]), ink)
-			"engranaje":
+			"remache":
+				draw_circle(c + Vector2(-5, 0), 3, ink)
+				draw_circle(c + Vector2(5, 0), 3, ink)
+			"escapement":
 				draw_arc(c, 6, 0, TAU, 8, ink, 2.0, true)
-			"reloj":
-				draw_arc(c, 6, 0, TAU, 12, ink, 1.5, true)
 				draw_line(c, c + Vector2(0, -5), ink, 1.5)
-			"alquimia":
-				draw_line(c + Vector2(0, -6), c + Vector2(0, 6), ink, 2)
-				draw_line(c + Vector2(-5, -2), c + Vector2(5, -2), ink, 2)
-			"iman":
-				draw_arc(c, 6, PI, TAU, 8, ink, 2.0, true)
 			"reso":
 				draw_arc(c + Vector2(0, 2), 5, PI * 1.1, TAU * 0.95, 8, ink, 2.0, true)
 			"auto":

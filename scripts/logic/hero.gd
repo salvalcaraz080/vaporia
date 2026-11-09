@@ -42,7 +42,7 @@ static func create(content: ContentDB, gear_id: String):
 	h.banish_n = int(b.startBanish)
 	var g: Dictionary = content.gear_by_id[gear_id]
 	h.gain(str(g.start))
-	if str(g.fam) == "engranaje":
+	if str(g.fam) == "escapement":
 		h.crit += float(b.gearCrit)
 	if str(g.fam) == "remache":
 		h.defense += float(b.gearDef)
