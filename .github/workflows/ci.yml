@@ -26,6 +26,8 @@ jobs:
           use-dotnet: false
       - name: Smoke test the balance sim
         run: godot --headless --path . -s res://tools/sim_main.gd -- --runs 25 --policies random,greedy,rarity --smoke
+      - name: Locked families stay out of offers
+        run: godot --headless --path . -s res://tools/check_locked_offers.gd
 
   web:
     name: Web export

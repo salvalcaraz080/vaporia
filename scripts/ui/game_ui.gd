@@ -52,6 +52,8 @@ var kills := 0
 var events_n := 0
 var _scrap_banked := false
 var _scrap_note := {}
+var _xp_note := {}
+var _level_before := 1
 var speed := 2
 var autoplay := false
 var _shot := {}
@@ -239,6 +241,20 @@ func _button(text: String, cb: Callable, primary := false) -> Button:
 	return b
 
 
+func _xp_bar(have: float, span: float) -> ProgressBar:
+	var b := _bar(COL_VERDIGRIS)
+	b.min_value = 0.0
+	b.max_value = maxf(1.0, span)
+	b.value = clampf(have, 0.0, b.max_value)
+	b.custom_minimum_size = Vector2(0, 34)
+	# The shared bar track is the page color, so an empty XP bar disappears.
+	var track := StyleBoxFlat.new()
+	track.bg_color = COL_PANEL2
+	track.set_corner_radius_all(6)
+	b.add_theme_stylebox_override("background", track)
+	return b
+
+
 func _bar(fill: Color) -> ProgressBar:
 	var b := ProgressBar.new()
 	b.show_percentage = false
@@ -269,8 +285,7 @@ func _drive_async(kind: String) -> void:
 	print("SCREEN " + kind)
 	await get_tree().process_frame
 	await RenderingServer.frame_post_draw
-	if kind != "end":
-		await get_tree().create_timer(0.45).timeout
+	await get_tree().create_timer(0.45).timeout
 	if not _shot.has(kind):
 		_shot[kind] = true
 		var img := get_viewport().get_texture().get_image()
@@ -324,6 +339,14 @@ func _show_workshop() -> void:
 	title.add_child(_label("Scrap %d" % int(profile.scrap), 36, COL_TEXT, false))
 	row.add_child(title)
 	_header.add_child(row)
+	var lv := int(profile.character_level())
+	var into: Dictionary = profile.xp_into_level()
+	_header.add_child(_label("Level %d" % lv, 36, COL_TEXT, false))
+	var xp_line := "XP bar full"
+	if into.atMax != true:
+		xp_line = "%d / %d XP" % [int(into.have), int(into.span)]
+	_header.add_child(_label(xp_line, 30, COL_TEXT, false))
+	_header.add_child(_xp_bar(float(into.have), float(into.span)))
 	_body.add_child(_label("The bench is patched copper and verdigris. Farolillo's lantern pools light on the scrap drawer. Nuts stay in the run. Scrap stays here.", 26))
 	_body.add_child(_label("Chassis", 28, COL_BRASS))
 	var atk_cost := int(profile.attack_cost())
@@ -372,6 +395,10 @@ func _show_workshop() -> void:
 	var shown := 0
 	for s in db.skills:
 		if str(s.rarity) != "rara":
+			continue
+		if int(s.get("requiredLevel", 0)) > 0:
+			continue
+		if not profile.family_open(str(s.fam)):
 			continue
 		var sid := str(s.id)
 		if profile.skill_unlocked(sid):
@@ -486,6 +513,8 @@ func _start_run() -> void:
 		ui_seed = seed
 	hero = HeroState.create(db, ui_gear, profile)
 	_scrap_banked = false
+	_xp_note = {}
+	_level_before = int(profile.character_level())
 	chapter = db.chapter
 	step = -1
 	used = []
@@ -1242,10 +1271,37 @@ func _show_end(win: bool, enemy: Dictionary) -> void:
 	_body.add_child(pair)
 	var steps_reached := chapter.size() if win else step + 1
 	if not _scrap_banked and hero != null:
+		_level_before = int(profile.character_level())
 		_scrap_note = profile.scrap_reward(steps_reached, win, hero.coins)
+		_xp_note = profile.xp_reward(steps_reached, win)
 		profile.grant(_scrap_note)
+		profile.grant_xp(int(_xp_note.total))
 		profile.save()
 		_scrap_banked = true
+	var level_after := int(profile.character_level())
+	var heading := _label("Chapter cleared" if win else "The crossing ends", 34, COL_BRASS)
+	heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_body.add_child(heading)
+	var xp_total := int(_xp_note.get("total", 0))
+	var xp_l := _label("+%d XP" % xp_total, 44, COL_VERDIGRIS)
+	xp_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_body.add_child(xp_l)
+	var xp_bits := "Level %d" % level_after
+	if level_after > _level_before:
+		xp_bits = "Level %d → %d" % [_level_before, level_after]
+	var grown: Dictionary = profile.level_bonus()
+	var grown_bits: PackedStringArray = []
+	if int(grown.hp) > 0:
+		grown_bits.append("+%d HP" % int(grown.hp))
+	if int(grown.atk) > 0:
+		grown_bits.append("+%d attack" % int(grown.atk))
+	if int(grown.def) > 0:
+		grown_bits.append("+%d defense" % int(grown.def))
+	if grown_bits.size() > 0:
+		xp_bits += "\n" + ", ".join(grown_bits)
+	var xp_d := _label(xp_bits, 32, COL_TEXT)
+	xp_d.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_body.add_child(xp_d)
 	var scrap_total := int(_scrap_note.get("total", 0))
 	var scrap_l := _label("+%d scrap" % scrap_total, 44, COL_BRASS)
 	scrap_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -1261,9 +1317,6 @@ func _show_end(win: bool, enemy: Dictionary) -> void:
 	scrap_d.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_body.add_child(scrap_d)
 	_body.add_child(_label("Drawer now holds %d scrap." % int(profile.scrap), 26, COL_MUTED))
-	var h := _label("Chapter cleared" if win else "The crossing ends", 30, COL_BRASS)
-	h.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_body.add_child(h)
 	var blurb := ""
 	if win:
 		blurb = "Chispa banks the Great Boiler. Farolillo blinks, warm and smug."

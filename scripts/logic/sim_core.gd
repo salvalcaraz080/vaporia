@@ -208,6 +208,8 @@ static func run_one(db: ContentDB, r: int, pol: String, agg: Dictionary, profile
 		focus = fam_id
 		family_pick = true
 		pol = "fam:" + fam_id
+		if profile != null and profile.recenter:
+			profile = load("res://scripts/logic/profile.gd").mid_for(db, fam_id)
 	if profile != null and not family_pick:
 		var open_tools: Array = profile.unlocked_tool_ids()
 		if open_tools.size() > 0:

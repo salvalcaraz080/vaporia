@@ -27,8 +27,10 @@ var focus_fam: String = ""
 var tool_bonus := 0.0
 var use_unlocks := false
 var unlocked: Dictionary = {}
+var open_families: Dictionary = {}
 var start_ranks: Dictionary = {}
 var effect_mods: Dictionary = {}
+var character_level := 1
 
 
 static func create(content: ContentDB, gear_id: String, profile = null):
@@ -48,12 +50,17 @@ static func create(content: ContentDB, gear_id: String, profile = null):
 	h.banish_n = int(b.startBanish)
 	var g: Dictionary = content.gear_by_id[gear_id]
 	if profile != null:
-		h.atk += float(profile.chassis_atk())
-		h.max_hp += float(profile.chassis_hp())
+		var grown: Dictionary = profile.level_bonus()
+		h.character_level = int(profile.character_level())
+		h.atk += float(profile.chassis_atk()) + float(grown.atk)
+		h.max_hp += float(profile.chassis_hp()) + float(grown.hp)
 		h.hp = h.max_hp
-		h.defense += float(profile.chassis_def())
+		h.defense += float(profile.chassis_def()) + float(grown.def)
 		h.tool_bonus = float(profile.tool_bonus(gear_id))
 		h.use_unlocks = true
+		for g2 in content.gears:
+			if profile.tool_unlocked(str(g2.id)):
+				h.open_families[str(g2.fam)] = true
 		for s in content.skills:
 			var sid := str(s.id)
 			if profile.skill_unlocked(sid):
@@ -137,7 +144,20 @@ func set_level(id: String, lv: int) -> void:
 func skill_allowed(id: String) -> bool:
 	if not use_unlocks:
 		return true
-	return unlocked.has(id)
+	var sk: Dictionary = db.skill_by_id[id]
+	var gate := int(sk.get("requiredLevel", 0))
+	if gate > 0:
+		if character_level < gate:
+			return false
+	elif not unlocked.has(id):
+		return false
+	if not open_families.has(str(sk.fam)):
+		return false
+	if sk.has("syn"):
+		for fam in sk.syn:
+			if not open_families.has(str(fam)):
+				return false
+	return true
 
 
 func gain(id: String) -> void:
@@ -318,11 +338,17 @@ func _apply_fx(fx: Dictionary, rng: SeededRng, out: Dictionary) -> void:
 					continue
 				if level(str(s.id)) > 0:
 					continue
+				if not skill_allowed(str(s.id)):
+					continue
 				opts.append(s)
-			var to: Dictionary = opts[rng.pick_index(opts.size())]
-			set_level(id, 0)
-			set_level(str(to.id), mini(lv, int(to.max)))
-			out.msgs.append(str(db.skill_by_id[id].name) + " transmutes into " + str(to.name) + " (Lv " + str(level(str(to.id))) + ").")
+			if opts.is_empty():
+				atk += 2
+				out.msgs.append("+2 attack.")
+			else:
+				var to: Dictionary = opts[rng.pick_index(opts.size())]
+				set_level(id, 0)
+				set_level(str(to.id), mini(lv, int(to.max)))
+				out.msgs.append(str(db.skill_by_id[id].name) + " transmutes into " + str(to.name) + " (Lv " + str(level(str(to.id))) + ").")
 	if fx.get("refund"):
 		var own: Array = []
 		for k in skills.keys():

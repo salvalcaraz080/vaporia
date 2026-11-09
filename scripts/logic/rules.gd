@@ -326,6 +326,8 @@ static func _roll_skills(db: ContentDB, h: HeroState, tier: Dictionary, rng: See
 		for c in cards:
 			if str(c.kind) != "skill":
 				continue
+			if int(db.skill_by_id[str(c.id)].get("requiredLevel", 0)) > 0:
+				continue
 			if seen.has(c.id):
 				continue
 			seen[c.id] = true
