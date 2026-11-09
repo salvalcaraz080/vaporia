@@ -24,9 +24,14 @@ var blessings: Array = []
 var curses: Array = []
 var bought: Dictionary = {}
 var focus_fam: String = ""
+var tool_bonus := 0.0
+var use_unlocks := false
+var unlocked: Dictionary = {}
+var start_ranks: Dictionary = {}
+var effect_mods: Dictionary = {}
 
 
-static func create(content: ContentDB, gear_id: String):
+static func create(content: ContentDB, gear_id: String, profile = null):
 	var h = load("res://scripts/logic/hero.gd").new()
 	h.db = content
 	var b: Dictionary = content.bal
@@ -42,7 +47,26 @@ static func create(content: ContentDB, gear_id: String):
 	h.rerolls = int(b.startRerolls)
 	h.banish_n = int(b.startBanish)
 	var g: Dictionary = content.gear_by_id[gear_id]
+	if profile != null:
+		h.atk += float(profile.chassis_atk())
+		h.max_hp += float(profile.chassis_hp())
+		h.hp = h.max_hp
+		h.defense += float(profile.chassis_def())
+		h.tool_bonus = float(profile.tool_bonus(gear_id))
+		h.use_unlocks = true
+		for s in content.skills:
+			var sid := str(s.id)
+			if profile.skill_unlocked(sid):
+				h.unlocked[sid] = true
+			var sr := int(profile.start_rank(sid))
+			if sr > 0:
+				h.start_ranks[sid] = sr
+			var mods: Dictionary = profile.effect_mods(sid)
+			if not mods.is_empty():
+				h.effect_mods[sid] = mods
 	h.gain(str(g.start))
+	if profile != null and h.level(str(g.start)) < int(profile.start_level_floor(gear_id)):
+		h.set_level(str(g.start), int(profile.start_level_floor(gear_id)))
 	if str(g.fam) == "escapement":
 		h.crit += float(b.gearCrit)
 	if str(g.fam) == "remache":
@@ -110,8 +134,20 @@ func set_level(id: String, lv: int) -> void:
 		skills.erase(id)
 
 
+func skill_allowed(id: String) -> bool:
+	if not use_unlocks:
+		return true
+	return unlocked.has(id)
+
+
 func gain(id: String) -> void:
-	if level(id) < int(db.skill_by_id[id].max):
+	var sk: Dictionary = db.skill_by_id[id]
+	if level(id) <= 0:
+		var lv := 1 + int(start_ranks.get(id, 0))
+		set_level(id, mini(lv, int(sk.max)))
+		if effect_mods.has(id):
+			add_mods(effect_mods[id], 1.0)
+	elif level(id) < int(sk.max):
 		set_level(id, level(id) + 1)
 
 

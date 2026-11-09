@@ -19,14 +19,14 @@ const POLICIES := {
 }
 
 
-static func run_all(db: ContentDB, n: int, policies: Array) -> Dictionary:
+static func run_all(db: ContentDB, n: int, policies: Array, profile = null) -> Dictionary:
 	var results: Array = []
 	for pol in policies:
-		results.append(simulate(db, n, str(pol)))
+		results.append(simulate(db, n, str(pol), profile))
 	return {"runs": n, "results": results}
 
 
-static func simulate(db: ContentDB, n: int, policy: String) -> Dictionary:
+static func simulate(db: ContentDB, n: int, policy: String, profile = null) -> Dictionary:
 	var pol := str(POLICIES.get(policy, policy))
 	var agg := {
 		"turns": {},
@@ -49,7 +49,7 @@ static func simulate(db: ContentDB, n: int, policy: String) -> Dictionary:
 	var fights_tot := 0
 	var skills_lv := 0
 	for r in n:
-		var o: Dictionary = run_one(db, r, pol, agg)
+		var o: Dictionary = run_one(db, r, pol, agg, profile)
 		fights_tot += int(o.fights)
 		var S: Dictionary = o.hero.stats()
 		for k in ["atk", "def", "crit", "critDmg", "eva", "acc", "maxHp"]:
@@ -194,19 +194,25 @@ static func _family_gear(db: ContentDB, fam_id: String, mode: String, r: int) ->
 	return own
 
 
-static func run_one(db: ContentDB, r: int, pol: String, agg: Dictionary) -> Dictionary:
+static func run_one(db: ContentDB, r: int, pol: String, agg: Dictionary, profile = null) -> Dictionary:
 	var seed := "SIM-" + str(r)
 	var gear := str(db.gears[r % db.gears.size()].id)
 	# fam:<id>:on and fam:<id>:off share a bot seed. Off-gear rotates the other tools.
 	var focus := ""
+	var family_pick := false
 	if pol.begins_with("fam:"):
 		var bits := pol.split(":")
 		var fam_id := str(bits[1])
 		var mode := str(bits[2]) if bits.size() > 2 else "on"
 		gear = _family_gear(db, fam_id, mode, r)
 		focus = fam_id
+		family_pick = true
 		pol = "fam:" + fam_id
-	var h = HeroState.create(db, gear)
+	if profile != null and not family_pick:
+		var open_tools: Array = profile.unlocked_tool_ids()
+		if open_tools.size() > 0:
+			gear = str(open_tools[r % open_tools.size()])
+	var h = HeroState.create(db, gear, profile)
 	h.focus_fam = focus
 	var rng_o := SeededRng.new(seed + "|ofertas")
 	var rng_e := SeededRng.new(seed + "|eventos")

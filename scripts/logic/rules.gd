@@ -116,6 +116,8 @@ static func make_offer(h: HeroState, rng: SeededRng, mode: String) -> Array:
 			left = kept
 		var sid := str(picked.s.id)
 		var next := h.level(sid) + 1
+		if h.level(sid) == 0:
+			next = mini(1 + int(h.start_ranks.get(sid, 0)), int(picked.s.max))
 		cards.append({
 			"kind": "skill",
 			"id": sid,
@@ -206,6 +208,8 @@ static func _candidates(h: HeroState, mode: String) -> Array:
 		if h.level(sid) >= int(s.max):
 			continue
 		if h.banished.has(sid):
+			continue
+		if not h.skill_allowed(sid):
 			continue
 		if s.has("req") and not _any_level(h, s.req):
 			continue

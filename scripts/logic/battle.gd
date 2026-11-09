@@ -102,6 +102,8 @@ func _run(content: ContentDB, hero: HeroState, enemy: Dictionary, random: Seeded
 			_log("heal", "Seam tape: +" + str(JsMath.js_round(seam)))
 	if shield > 0.0:
 		_log("shield", "Starting shield: +" + str(JsMath.js_round(shield)))
+	if h.md("openRust") > 0.0:
+		e.poison = float(e.poison) + h.md("openRust")
 	if lv("o_gota") >= 5:
 		e.poison = float(e.poison) + 4.0
 	if lv("o_salpica") > 0:
@@ -391,6 +393,7 @@ func _deal(amt: float, src: String, attack: bool, dot: bool, pierce: bool) -> in
 			m += float(bal.gearReso)
 		else:
 			m += float(bal.gearBonus)
+		m += float(h.tool_bonus)
 	if float(e.poison) >= 16.0:
 		m += sv("o_corr")
 	if int(e.burn) > 0:

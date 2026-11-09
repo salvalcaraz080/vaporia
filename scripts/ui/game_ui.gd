@@ -6,6 +6,7 @@ const SeededRng = preload("res://scripts/logic/rng.gd")
 const Rules = preload("res://scripts/logic/rules.gd")
 const BattleSim = preload("res://scripts/logic/battle.gd")
 const JsMath = preload("res://scripts/logic/jsmath.gd")
+const Profile = preload("res://scripts/logic/profile.gd")
 
 # Rebels: charcoal, rusted copper, verdigris, furnace orange. Empire gold is the accent.
 const COL_BG := Color("1b1814")
@@ -34,6 +35,7 @@ const LOG_COLOR := {
 }
 
 var db
+var profile
 var ui_gear := "lima"
 var ui_seed := ""
 var hero
@@ -48,6 +50,8 @@ var dmg_all := {}
 var turns_sum := 0
 var kills := 0
 var events_n := 0
+var _scrap_banked := false
+var _scrap_note := {}
 var speed := 2
 var autoplay := false
 var _shot := {}
@@ -99,6 +103,7 @@ func _ready() -> void:
 	theme.set_font_size("normal_font_size", "RichTextLabel", 24)
 	set_theme(theme)
 	db = ContentDB.load_default()
+	profile = Profile.load_or_default(db)
 	ui_seed = _random_seed()
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -107,7 +112,7 @@ func _ready() -> void:
 	_timer.one_shot = true
 	add_child(_timer)
 	_timer.timeout.connect(_combat_tick)
-	_show_home()
+	_show_workshop()
 
 
 func _build_shell() -> void:
@@ -288,9 +293,105 @@ func _drive_async(kind: String) -> void:
 			_press_continue()
 		"merchant":
 			_merchant_leave()
+		"workshop":
+			_show_home()
 		"end":
 			print("AUTOPLAY_OK")
 			get_tree().quit(0)
+
+
+# ---------- Workshop ----------
+
+func _show_workshop() -> void:
+	hero = null
+	_clear(_header)
+	_clear(_body)
+	_clear(_footer)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	var pair := HBoxContainer.new()
+	pair.add_theme_constant_override("separation", 4)
+	var chispa := ChispaMark.new()
+	chispa.custom_minimum_size = Vector2(72, 96)
+	var farol := FarolMark.new()
+	farol.custom_minimum_size = Vector2(64, 96)
+	pair.add_child(chispa)
+	pair.add_child(farol)
+	row.add_child(pair)
+	var title := VBoxContainer.new()
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.add_child(_label("Chispa's Workshop", 40, COL_BRASS, false))
+	title.add_child(_label("Scrap %d" % int(profile.scrap), 36, COL_TEXT, false))
+	row.add_child(title)
+	_header.add_child(row)
+	_body.add_child(_label("The bench is patched copper and verdigris. Farolillo's lantern pools light on the scrap drawer. Nuts stay in the run. Scrap stays here.", 26))
+	_body.add_child(_label("Chassis", 28, COL_BRASS))
+	var atk_cost := int(profile.attack_cost())
+	var atk_btn := _button("Fit a stronger arm  ·  +1 attack  ·  %d scrap" % atk_cost, func():
+		if profile.buy_attack():
+			profile.save()
+		_show_workshop()
+	)
+	atk_btn.disabled = not profile.can_buy_attack()
+	if int(profile.chassis.atk) >= 1:
+		atk_btn.text = "Arm fitted  ·  +%d attack" % int(profile.chassis_atk())
+	_body.add_child(atk_btn)
+	_body.add_child(_label("Tools", 28, COL_BRASS))
+	for g in db.gears:
+		var gid := str(g.id)
+		var fam: Dictionary = db.family_by_id[g.fam]
+		if profile.tool_unlocked(gid):
+			var rank := int(profile.tool_rank(gid))
+			var rules: Dictionary = db.meta.get("toolRanks", {})
+			var show_rank := rank < int(rules.get("v1MaxRank", 1))
+			var ranked := 0
+			for tid in profile.tools.keys():
+				if int(profile.tools[tid].rank) > 0:
+					ranked += 1
+			if ranked > 0 and rank == 0:
+				show_rank = false
+			if show_rank:
+				var rank_btn := _button("Raise %s to rank 1  ·  %d scrap  ·  +4%% family damage" % [g.name, int(profile.rank_cost(gid))], func():
+					if profile.buy_tool_rank(gid):
+						profile.save()
+					_show_workshop()
+				)
+				rank_btn.disabled = not profile.can_buy_tool_rank(gid)
+				_body.add_child(rank_btn)
+			else:
+				_body.add_child(_label("%s  ·  %s  ·  rank %d" % [g.name, fam.name, rank], 26))
+		else:
+			var lock_btn := _button("Unlock %s  ·  %s  ·  %d scrap" % [g.name, fam.name, int(profile.tool_cost())], func():
+				if profile.buy_tool(gid):
+					profile.save()
+				_show_workshop()
+			)
+			lock_btn.disabled = not profile.can_buy_tool(gid)
+			_body.add_child(lock_btn)
+	_body.add_child(_label("Rare blueprints  ·  %d / %d" % [int(profile.rare_buys()), int(profile.db.meta.get("unlock", {}).get("v1RareCap", 3))], 28, COL_BRASS))
+	var shown := 0
+	for s in db.skills:
+		if str(s.rarity) != "rara":
+			continue
+		var sid := str(s.id)
+		if profile.skill_unlocked(sid):
+			continue
+		var fam_name := str(db.family_by_id[s.fam].name)
+		var rare_btn := _button("Unlock %s  ·  %s  ·  %d scrap" % [s.name, fam_name, int(profile.rare_cost())], func():
+			if profile.buy_rare(sid):
+				profile.save()
+			_show_workshop()
+		)
+		rare_btn.disabled = not profile.can_buy_rare(sid)
+		_body.add_child(rare_btn)
+		shown += 1
+	if shown == 0:
+		_body.add_child(_label("No rare blueprints left on the bench.", 26, COL_MUTED))
+	_footer.add_child(_button("Begin the crossing", func():
+		_show_home()
+	, true))
+	_fade()
+	_drive("workshop")
 
 
 # ---------- Home ----------
@@ -325,9 +426,15 @@ func _show_home() -> void:
 	iv.add_child(_label("No energy. No ads. No paid wheels.", 22, COL_MUTED))
 	intro.add_child(iv)
 	_body.add_child(intro)
+	if profile != null and not profile.tool_unlocked(ui_gear):
+		var open_ids: Array = profile.unlocked_tool_ids()
+		if open_ids.size() > 0:
+			ui_gear = str(open_ids[0])
 	_body.add_child(_label("1 · Choose your tool", 22, COL_BRASS))
 	for g in db.gears:
 		var gid := str(g.id)
+		if profile != null and not profile.tool_unlocked(gid):
+			continue
 		var fam: Dictionary = db.family_by_id[g.fam]
 		var b := _button("%s\n%s · %s" % [g.name, fam.name, g.desc], func():
 			ui_gear = gid
@@ -359,6 +466,9 @@ func _show_home() -> void:
 	roll.custom_minimum_size = Vector2(110, 52)
 	roll.size_flags_horizontal = Control.SIZE_SHRINK_END
 	seed_row.add_child(roll)
+	_footer.add_child(_button("Back to the workshop", func():
+		_show_workshop()
+	))
 	_footer.add_child(seed_row)
 	_footer.add_child(_label("Same seed, same choices, same run.", 22, COL_MUTED))
 	_footer.add_child(_button("Begin the crossing", func():
@@ -374,7 +484,8 @@ func _start_run() -> void:
 	if seed == "":
 		seed = _random_seed()
 		ui_seed = seed
-	hero = HeroState.create(db, ui_gear)
+	hero = HeroState.create(db, ui_gear, profile)
+	_scrap_banked = false
 	chapter = db.chapter
 	step = -1
 	used = []
@@ -1129,6 +1240,27 @@ func _show_end(win: bool, enemy: Dictionary) -> void:
 	pair.add_child(chispa)
 	pair.add_child(farol)
 	_body.add_child(pair)
+	var steps_reached := chapter.size() if win else step + 1
+	if not _scrap_banked and hero != null:
+		_scrap_note = profile.scrap_reward(steps_reached, win, hero.coins)
+		profile.grant(_scrap_note)
+		profile.save()
+		_scrap_banked = true
+	var scrap_total := int(_scrap_note.get("total", 0))
+	var scrap_l := _label("+%d scrap" % scrap_total, 44, COL_BRASS)
+	scrap_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_body.add_child(scrap_l)
+	var scrap_bits := "Steps +%d" % int(_scrap_note.get("steps", 0))
+	if int(_scrap_note.get("miniboss", 0)) > 0:
+		scrap_bits += "  ·  miniboss +%d" % int(_scrap_note.get("miniboss", 0))
+	if int(_scrap_note.get("victory", 0)) > 0:
+		scrap_bits += "  ·  boiler +%d" % int(_scrap_note.get("victory", 0))
+	if int(_scrap_note.get("nuts", 0)) > 0:
+		scrap_bits += "  ·  leftover nuts +%d" % int(_scrap_note.get("nuts", 0))
+	var scrap_d := _label(scrap_bits, 26, COL_TEXT)
+	scrap_d.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_body.add_child(scrap_d)
+	_body.add_child(_label("Drawer now holds %d scrap." % int(profile.scrap), 26, COL_MUTED))
 	var h := _label("Chapter cleared" if win else "The crossing ends", 30, COL_BRASS)
 	h.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_body.add_child(h)
@@ -1182,9 +1314,9 @@ func _show_end(win: bool, enemy: Dictionary) -> void:
 	var again := _button("Replay this seed", func():
 		_start_run()
 	, true)
-	var fresh := _button("New run", func():
+	var fresh := _button("Back to the workshop", func():
 		ui_seed = _random_seed()
-		_show_home()
+		_show_workshop()
 	)
 	row.add_child(again)
 	row.add_child(fresh)
