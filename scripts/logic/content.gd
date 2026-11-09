@@ -27,6 +27,7 @@ var merchant: Dictionary = {}
 var rewards: Dictionary = {}
 var sources: Dictionary = {}
 var stat_info: Array = []
+var meta: Dictionary = {}
 
 static var _cache
 
@@ -85,6 +86,7 @@ func _load() -> void:
 	rewards = data.rewards
 	sources = data.sources
 	stat_info = data.statInfo
+	meta = data.get("meta", {})
 
 
 func rarity_of(id: String) -> Dictionary:
