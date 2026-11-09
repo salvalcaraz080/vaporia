@@ -9,10 +9,10 @@ const JsMath = preload("res://scripts/logic/jsmath.gd")
 const Profile = preload("res://scripts/logic/profile.gd")
 
 # Rebels: charcoal, rusted copper, verdigris, furnace orange. Empire gold is the accent.
-const COL_BG := Color("1b1814")
-const COL_PANEL := Color("2a241c")
-const COL_PANEL2 := Color("3a3126")
-const COL_LINE := Color("c47a45")
+const COL_BG := Color("14110e")
+const COL_PANEL := Color("1c1612")
+const COL_PANEL2 := Color("241c16")
+const COL_LINE := Color("a56a3a")
 const COL_BRASS := Color("e0b24a")
 const COL_TEXT := Color("f6f0e4")
 const COL_MUTED := Color("cbbba4")
@@ -64,6 +64,9 @@ var _body: VBoxContainer
 var _footer: VBoxContainer
 var _stage: Control
 var _bg: WardBg
+var _diorama: Control
+var _scrim: ColorRect
+var _art_cache := {}
 var _seed_edit: LineEdit
 var _arena: Control
 var _player_art: Control
@@ -120,9 +123,19 @@ func _ready() -> void:
 
 func _build_shell() -> void:
 	_bg = WardBg.new()
+	_bg.frames = [_tex("bg_streets"), _tex("bg_works"), _tex("bg_citadel")]
 	_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_bg)
+	_diorama = Control.new()
+	_diorama.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_diorama.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_diorama)
+	_scrim = ColorRect.new()
+	_scrim.color = Color(0.05, 0.03, 0.02, 0.62)
+	_scrim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_scrim)
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
 	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
@@ -155,6 +168,8 @@ func _build_shell() -> void:
 
 
 func _clear(node: Node) -> void:
+	if node == _body:
+		_clear_diorama()
 	while node.get_child_count() > 0:
 		var c := node.get_child(0)
 		node.remove_child(c)
@@ -194,8 +209,8 @@ func _panel() -> PanelContainer:
 	var box := StyleBoxFlat.new()
 	box.bg_color = COL_PANEL
 	box.border_color = COL_LINE
-	box.set_border_width_all(1)
-	box.set_corner_radius_all(14)
+	box.set_border_width_all(3)
+	box.set_corner_radius_all(8)
 	box.content_margin_left = 12
 	box.content_margin_right = 12
 	box.content_margin_top = 10
@@ -209,8 +224,8 @@ func _style_button(b: Button, fill: Color, border: Color, font: Color) -> void:
 		var box := StyleBoxFlat.new()
 		box.bg_color = fill
 		box.border_color = border
-		box.set_border_width_all(2)
-		box.set_corner_radius_all(12)
+		box.set_border_width_all(3)
+		box.set_corner_radius_all(8)
 		box.content_margin_left = 12
 		box.content_margin_right = 12
 		box.content_margin_top = 10
@@ -318,13 +333,15 @@ func _xp_bar(have: float, span: float) -> ProgressBar:
 func _bar(fill: Color) -> ProgressBar:
 	var b := ProgressBar.new()
 	b.show_percentage = false
-	b.custom_minimum_size = Vector2(0, 26)
+	b.custom_minimum_size = Vector2(0, 34)
 	var bg := StyleBoxFlat.new()
-	bg.bg_color = Color("0d0b09")
-	bg.set_corner_radius_all(6)
+	bg.bg_color = Color("100e0c")
+	bg.border_color = Color("8a5a32")
+	bg.set_border_width_all(2)
+	bg.set_corner_radius_all(8)
 	var fg := StyleBoxFlat.new()
 	fg.bg_color = fill
-	fg.set_corner_radius_all(6)
+	fg.set_corner_radius_all(8)
 	b.add_theme_stylebox_override("background", bg)
 	b.add_theme_stylebox_override("fill", fg)
 	return b
@@ -342,18 +359,21 @@ func _drive(kind: String) -> void:
 
 
 func _drive_async(kind: String) -> void:
-	print("SCREEN " + kind)
+	var shot := kind
+	if kind == "combat" and _bg != null:
+		shot = "combat_z%d" % int(_bg.zone)
+	print("SCREEN " + shot)
 	await get_tree().process_frame
 	await RenderingServer.frame_post_draw
 	var pause := 0.45
 	if kind == "end":
 		pause = 0.9
 	await get_tree().create_timer(pause).timeout
-	if not _shot.has(kind):
-		_shot[kind] = true
+	if not _shot.has(shot):
+		_shot[shot] = true
 		var img := get_viewport().get_texture().get_image()
 		DirAccess.make_dir_recursive_absolute("/tmp/vaporia-shots")
-		img.save_png("/tmp/vaporia-shots/" + kind + ".png")
+		img.save_png("/tmp/vaporia-shots/" + shot + ".png")
 	match kind:
 		"home":
 			ui_gear = "lima"
@@ -382,6 +402,8 @@ func _drive_async(kind: String) -> void:
 
 func _show_workshop() -> void:
 	hero = null
+	if _scrim != null:
+		_scrim.visible = true
 	_clear(_header)
 	_clear(_body)
 	_clear(_footer)
@@ -389,9 +411,7 @@ func _show_workshop() -> void:
 	row.add_theme_constant_override("separation", 12)
 	var pair := HBoxContainer.new()
 	pair.add_theme_constant_override("separation", 4)
-	var chispa := ChispaMark.new()
-	chispa.custom_minimum_size = Vector2(72, 96)
-	pair.add_child(chispa)
+	pair.add_child(_portrait("chispa", 120))
 	row.add_child(pair)
 	var title := VBoxContainer.new()
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -493,9 +513,7 @@ func _show_home() -> void:
 	row.add_theme_constant_override("separation", 12)
 	var pair := HBoxContainer.new()
 	pair.add_theme_constant_override("separation", 4)
-	var chispa := ChispaMark.new()
-	chispa.custom_minimum_size = Vector2(72, 96)
-	pair.add_child(chispa)
+	pair.add_child(_portrait("chispa", 120))
 	row.add_child(pair)
 	_sync_zone()
 	var title := VBoxContainer.new()
@@ -569,6 +587,8 @@ func _start_run() -> void:
 	if seed == "":
 		seed = _random_seed()
 		ui_seed = seed
+	if _scrim != null:
+		_scrim.visible = false
 	hero = HeroState.create(db, ui_gear, profile)
 	_scrap_banked = false
 	_xp_note = {}
@@ -641,16 +661,18 @@ func _paint_header() -> void:
 	_clear(_header)
 	var gear: Dictionary = db.gear_by_id[hero.gear]
 	var fam: Dictionary = db.family_by_id[gear.fam]
-	var top := HBoxContainer.new()
-	var zone := _label("Boiler Ward · " + _zone_name(), 22, COL_BRASS, false)
-	zone.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	top.add_child(zone)
-	top.add_child(_label(str(gear.name), 22, Color(str(fam.color)), false))
-	_header.add_child(top)
 	var shown := maxi(1, step + 1)
 	var total := maxi(1, chapter.size())
-	var step_l := _label("Step %d / %d" % [shown, total], 40, COL_TEXT, false)
-	_header.add_child(step_l)
+	var plaque := _panel()
+	var plate := VBoxContainer.new()
+	var banner := _label("%s · Step %d / %d" % [_zone_name(), shown, total], 34, COL_BRASS, false)
+	banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	plate.add_child(banner)
+	var gear_l := _label(str(gear.name), 24, Color(str(fam.color)), false)
+	gear_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	plate.add_child(gear_l)
+	plaque.add_child(plate)
+	_header.add_child(plaque)
 	var track := StepTrack.new()
 	track.chapter = chapter
 	track.here = step
@@ -715,7 +737,7 @@ func _render_offer(title: String) -> void:
 		sub = "Epic or legendary"
 	elif db.family_by_id.has(_offer_mode):
 		sub = str(db.family_by_id[_offer_mode].name) + " family"
-	_body.add_child(_label(title, 24, COL_BRASS))
+	_body.add_child(_label(title, 32, COL_BRASS))
 	if sub != "":
 		_body.add_child(_label(sub, 22, COL_MUTED))
 	if _banishing:
@@ -747,20 +769,15 @@ func _render_offer(title: String) -> void:
 				sb.set_border_width_all(4)
 				sb.border_color = frame
 				b.add_theme_stylebox_override(state, sb)
-		var row_card := HBoxContainer.new()
-		row_card.add_theme_constant_override("separation", 8)
-		row_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		if str(card.kind) == "skill":
-			var glyph := FamilyMark.new()
-			glyph.fam = str(db.skill_by_id[card.id].fam)
-			glyph.tint = Color(str(db.family_by_id[glyph.fam].color))
-			glyph.custom_minimum_size = Vector2(44, 44)
-			glyph.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			row_card.add_child(glyph)
-		b.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
-		row_card.add_child(b)
-		_body.add_child(row_card)
-		_reveal(row_card, 0.06 * float(i))
+			var fam_id := str(db.skill_by_id[card.id].fam)
+			b.icon = _tex("icon_" + fam_id)
+			b.expand_icon = true
+			b.add_theme_constant_override("icon_max_width", 76)
+			b.add_theme_constant_override("h_separation", 12)
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		_body.add_child(b)
+		_reveal(b, 0.06 * float(i))
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	var rr := _button("Reroll (%d)" % hero.rerolls, func():
@@ -851,42 +868,37 @@ func _start_fight(kind: String, sub: int, cb: Callable) -> void:
 	speeds.add_child(skip)
 	head.add_child(speeds)
 	_body.add_child(head)
-	var arena := HBoxContainer.new()
-	_arena = arena
-	arena.add_theme_constant_override("separation", 8)
-	_player_art = _fighter("Chispa", "", COL_BRASS, "chispa")
-	arena.add_child(_player_art)
-	var vs := _label("VS", 18, COL_MUTED, false)
-	vs.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	arena.add_child(vs)
-	var trait_txt := ""
-	if str(enemy.trait) != "":
-		trait_txt = str(db.traits.get(enemy.trait, ""))
-	_enemy_art = _fighter(str(enemy.name), trait_txt, _trait_tint(str(enemy.trait)), str(enemy.trait))
-	arena.add_child(_enemy_art)
-	_body.add_child(arena)
+	_arena = _diorama
+	_player_art = _bob("chispa", 0.0)
+	_player_art.add_child(_nameplate("Chispa"))
+	_diorama.add_child(_player_art)
+	var foe_id := _art_id(enemy)
+	_enemy_art = _bob(foe_id, 1.4)
+	_enemy_art.add_child(_nameplate(str(enemy.name)))
+	_diorama.add_child(_enemy_art)
+	_layout_diorama()
 	_hp_bar = _bar(COL_HP)
 	_hp_bar.max_value = hero.max_hp
 	_hp_bar.value = hp0
-	_body.add_child(_hp_bar)
+	_footer.add_child(_hp_bar)
 	_shield_bar = _bar(COL_SHIELD)
 	_shield_bar.max_value = hero.max_hp
 	_shield_bar.value = 0
-	_body.add_child(_shield_bar)
-	_status = _label("", 22, COL_MUTED)
-	_body.add_child(_status)
+	_footer.add_child(_shield_bar)
+	_status = _label("", 22, COL_TEXT)
+	_footer.add_child(_status)
 	_ehp_bar = _bar(COL_ENEMY)
 	_ehp_bar.max_value = float(enemy.maxHp)
 	_ehp_bar.value = float(enemy.maxHp)
-	_body.add_child(_ehp_bar)
-	_turn_label = _label("Turn 0", 22, COL_MUTED)
+	_footer.add_child(_ehp_bar)
+	_turn_label = _label("Turn 0", 24, COL_BRASS)
 	_turn_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_body.add_child(_turn_label)
+	_footer.add_child(_turn_label)
 	_log_box = RichTextLabel.new()
 	_log_box.bbcode_enabled = true
 	_log_box.scroll_following = true
-	_log_box.custom_minimum_size = Vector2(0, 220)
-	_log_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_log_box.custom_minimum_size = Vector2(0, 168)
+	_log_box.size_flags_vertical = Control.SIZE_SHRINK_END
 	_log_box.add_theme_color_override("default_color", COL_TEXT)
 	_log_box.add_theme_font_size_override("normal_font_size", 24)
 	var log_bg := StyleBoxFlat.new()
@@ -897,7 +909,7 @@ func _start_fight(kind: String, sub: int, cb: Callable) -> void:
 	log_bg.content_margin_top = 8
 	log_bg.content_margin_bottom = 8
 	_log_box.add_theme_stylebox_override("normal", log_bg)
-	_body.add_child(_log_box)
+	_footer.add_child(_log_box)
 	_after = VBoxContainer.new()
 	_footer.add_child(_after)
 	_fade()
@@ -905,52 +917,97 @@ func _start_fight(kind: String, sub: int, cb: Callable) -> void:
 	_drive("combat")
 
 
-func _trait_tint(trait_id: String) -> Color:
-	match trait_id:
-		"blindado":
-			return Color("3f8f86")
-		"esquiva":
-			return Color("d5e2ea")
-		"rapido":
-			return Color("e07a3d")
-		"regenera":
-			return Color("8fbf6a")
-		"espinas":
-			return Color("c47a45")
-		"pesado":
-			return Color("5c6a78")
-		"certero":
-			return Color("e0b24a")
-		_:
-			return Color("a86848")
+func _tex(art_id: String) -> Texture2D:
+	if _art_cache.has(art_id):
+		return _art_cache[art_id]
+	var path := "res://assets/art/%s.png" % art_id
+	var tex: Texture2D = null
+	if ResourceLoader.exists(path):
+		tex = load(path)
+	_art_cache[art_id] = tex
+	return tex
 
 
-func _fighter(name: String, sub: String, col: Color, kind: String) -> VBoxContainer:
-	var box := VBoxContainer.new()
-	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var art: Control
-	if kind == "chispa":
-		var row := HBoxContainer.new()
-		row.alignment = BoxContainer.ALIGNMENT_CENTER
-		var c := ChispaMark.new()
-		c.custom_minimum_size = Vector2(78, 104)
-		row.add_child(c)
-		art = row
-	else:
-		var e := EnemyMark.new()
-		e.kind_id = kind
-		e.tint = col
-		e.custom_minimum_size = Vector2(96, 104)
-		art = e
-	box.add_child(art)
-	var n := _label(name, 24, COL_TEXT)
-	n.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	box.add_child(n)
-	if sub != "":
-		var s := _label(sub, 22, COL_MUTED)
-		s.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		box.add_child(s)
-	return box
+func _art_id(enemy: Dictionary) -> String:
+	var id := str(enemy.get("id", ""))
+	if id != "":
+		return id
+	return str(enemy.get("name", "")).to_lower().replace("the ", "").replace(" ", "_")
+
+
+func _bob(art_id: String, phase: float) -> BobSprite:
+	var s := BobSprite.new()
+	s.tex = _tex(art_id)
+	s.phase = phase
+	s.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return s
+
+
+func _portrait(art_id: String, height: float) -> Control:
+	var s := _bob(art_id, 0.4)
+	var aspect := 0.7
+	if s.tex != null and s.tex.get_height() > 0:
+		aspect = float(s.tex.get_width()) / float(s.tex.get_height())
+	s.custom_minimum_size = Vector2(height * aspect, height)
+	return s
+
+
+func _nameplate(text: String) -> Label:
+	var l := _label(text, 26, COL_BRASS, true)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	l.add_theme_constant_override("outline_size", 12)
+	l.add_theme_color_override("font_outline_color", Color("140e0a"))
+	return l
+
+
+func _clear_diorama() -> void:
+	if _diorama == null:
+		return
+	_player_art = null
+	_enemy_art = null
+	while _diorama.get_child_count() > 0:
+		var c := _diorama.get_child(0)
+		_diorama.remove_child(c)
+		c.free()
+
+
+func _process(_delta: float) -> void:
+	_layout_diorama()
+
+
+func _layout_diorama() -> void:
+	if _diorama == null or _player_art == null or not is_instance_valid(_player_art):
+		return
+	if _player_art.get_parent() != _diorama:
+		return
+	var h := _diorama.size.y
+	var w := _diorama.size.x
+	if h < 40.0:
+		return
+	var foot := h * 0.62
+	_seat(_player_art, w * 0.28, foot, h * 0.30)
+	var foe_h := h * 0.32
+	if _combat_kind == "boss" or _combat_kind == "mini":
+		foe_h = h * 0.40
+	_seat(_enemy_art, w * 0.73, foot - h * 0.012, foe_h)
+
+
+func _seat(node: Control, center_x: float, foot: float, height: float) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	var sprite := node as BobSprite
+	var aspect := 0.7
+	if sprite != null and sprite.tex != null and sprite.tex.get_height() > 0:
+		aspect = float(sprite.tex.get_width()) / float(sprite.tex.get_height())
+	var sw := height * aspect
+	node.size = Vector2(sw, height)
+	node.position = Vector2(center_x - sw * 0.5, foot - height)
+	for c in node.get_children():
+		if c is Label:
+			var lab := c as Label
+			lab.position = Vector2((sw - 240.0) * 0.5, -40.0)
+			lab.size = Vector2(240, 56)
 
 
 func _combat_tick() -> void:
@@ -1021,8 +1078,9 @@ func _float_num(text: String, color: Color, on_enemy: bool) -> void:
 	lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_stage.add_child(lab)
 	var origin := size * 0.5
-	if _arena != null:
-		origin = _arena.global_position + Vector2(200 if on_enemy else 36, 16)
+	var anchor: Control = _enemy_art if on_enemy else _player_art
+	if anchor != null and is_instance_valid(anchor):
+		origin = anchor.global_position + Vector2(anchor.size.x * 0.35, 12)
 	lab.global_position = origin
 	var tw := create_tween()
 	tw.set_parallel(true)
@@ -1058,10 +1116,13 @@ func _reveal(node: Control, delay: float) -> void:
 
 
 func _shake(amount: float = 8.0) -> void:
-	var tw := create_tween()
-	tw.tween_property(_stage, "position:x", amount, 0.03)
-	tw.tween_property(_stage, "position:x", -amount * 0.7, 0.03)
-	tw.tween_property(_stage, "position:x", 0.0, 0.05)
+	for node in [_stage, _diorama]:
+		if node == null:
+			continue
+		var tw := create_tween()
+		tw.tween_property(node, "position:x", amount, 0.03)
+		tw.tween_property(node, "position:x", -amount * 0.7, 0.03)
+		tw.tween_property(node, "position:x", 0.0, 0.05)
 
 
 func _finish_combat() -> void:
@@ -1229,7 +1290,11 @@ func _render_merchant() -> void:
 	_clear(_body)
 	_clear(_footer)
 	var tier := Rules.merchant_tier(db, step + 1)
-	var title := _label(str(db.merchant.title), 26, COL_BRASS)
+	var stall := HBoxContainer.new()
+	stall.alignment = BoxContainer.ALIGNMENT_CENTER
+	stall.add_child(_portrait("merchant", 200))
+	_body.add_child(stall)
+	var title := _label(str(db.merchant.title), 32, COL_BRASS)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_body.add_child(title)
 	var intro := _label(str(db.merchant.intro), 22, COL_MUTED)
@@ -1268,8 +1333,13 @@ func _render_merchant() -> void:
 		var b := _button("%s\n%s · %s\n%s\n%d nuts" % [card.name, db.rarities[rarity].name, fam, card.text, price], func(): _buy_skill(idx))
 		b.disabled = not affordable
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		b.custom_minimum_size = Vector2(0, 148)
+		b.custom_minimum_size = Vector2(0, 156)
 		_style_button(b, COL_PANEL2, col, COL_TEXT)
+		if db.skill_by_id.has(card.id):
+			b.icon = _tex("icon_" + str(db.skill_by_id[card.id].fam))
+			b.expand_icon = true
+			b.add_theme_constant_override("icon_max_width", 68)
+			b.add_theme_constant_override("h_separation", 12)
 		_body.add_child(b)
 	var refresh_price := Rules.merchant_refresh_price(db, _visit)
 	var refreshes_left: int = int(db.merchant.maxRefreshes) - int(_visit.refreshes)
@@ -1313,14 +1383,14 @@ func _merchant_leave() -> void:
 
 func _show_end(win: bool, enemy: Dictionary) -> void:
 	_timer.stop()
+	if _scrim != null:
+		_scrim.visible = true
 	_clear(_header)
 	_clear(_body)
 	_clear(_footer)
 	var pair := HBoxContainer.new()
 	pair.alignment = BoxContainer.ALIGNMENT_CENTER
-	var chispa := ChispaMark.new()
-	chispa.custom_minimum_size = Vector2(84, 110)
-	pair.add_child(chispa)
+	pair.add_child(_portrait("chispa", 150))
 	_body.add_child(pair)
 	var steps_reached := chapter.size() if win else step + 1
 	if not _scrap_banked and hero != null:
@@ -1472,136 +1542,34 @@ class StepTrack:
 class WardBg:
 	extends Control
 	var zone := 0
+	var frames: Array = []
 
 	func _draw() -> void:
-		var sky := Color("1b1814") if zone == 0 else (Color("241910") if zone == 1 else Color("141820"))
-		draw_rect(Rect2(Vector2.ZERO, size), sky)
-		# Rebel pipes and roofs along the bottom. The gold tower is the empire, only in the last stretch.
-		var ground := Color("2a241c")
-		draw_rect(Rect2(0, size.y * 0.72, size.x, size.y), ground)
-		for i in 8:
-			var x := 30.0 + float(i) * (size.x / 7.0)
-			var h := 40.0 + float((i * 37) % 50)
-			draw_colored_polygon(PackedVector2Array([
-				Vector2(x, size.y * 0.72),
-				Vector2(x + 28, size.y * 0.72 - h),
-				Vector2(x + 56, size.y * 0.72),
-			]), Color("3a3128") if i % 2 == 0 else Color("4a3428"))
-			if i % 2 == 0:
-				draw_circle(Vector2(x + 28, size.y * 0.72 - h - 8), 5, Color("e07a3d"))
-		if zone >= 1:
-			draw_rect(Rect2(20, size.y * 0.42, size.x - 40, 14), Color("3f8f86"))
-			draw_rect(Rect2(20, size.y * 0.52, size.x * 0.6, 10), Color("c47a45"))
-		if zone >= 2:
-			var tx := size.x * 0.72
-			draw_colored_polygon(PackedVector2Array([
-				Vector2(tx, size.y * 0.72),
-				Vector2(tx + 36, size.y * 0.18),
-				Vector2(tx + 90, size.y * 0.72),
-			]), Color("e0b24a"))
-			draw_rect(Rect2(tx + 48, size.y * 0.16, 16, 18), Color("f6f0e4"))
+		if frames.is_empty():
+			draw_rect(Rect2(Vector2.ZERO, size), Color("14110e"))
+			return
+		var tex: Texture2D = frames[clampi(zone, 0, frames.size() - 1)]
+		if tex == null:
+			draw_rect(Rect2(Vector2.ZERO, size), Color("14110e"))
+			return
+		draw_texture_rect(tex, Rect2(Vector2.ZERO, size), false)
 
 
-class ChispaMark:
+class BobSprite:
 	extends Control
+	var tex: Texture2D
+	var phase := 0.0
+	var _t := 0.0
+
+	func _process(delta: float) -> void:
+		_t += delta
+		queue_redraw()
 
 	func _draw() -> void:
-		var s := size
-		var u := min(s.x / 78.0, s.y / 104.0)
-		var o := Vector2((s.x - 78.0 * u) * 0.5, s.y - 104.0 * u)
-		draw_set_transform(o, 0, Vector2(u, u))
-		# Boots and coat, olive with copper patches. Beret and furnace-orange scarf from the approved face.
-		draw_rect(Rect2(22, 78, 14, 16), Color("6b4a32"))
-		draw_rect(Rect2(42, 78, 14, 16), Color("6b4a32"))
-		draw_colored_polygon(PackedVector2Array([Vector2(20, 48), Vector2(58, 48), Vector2(62, 82), Vector2(16, 82)]), Color("5d6b52"))
-		draw_rect(Rect2(22, 54, 12, 10), Color("c47a45"))
-		draw_rect(Rect2(44, 62, 12, 8), Color("8a5a32"))
-		draw_rect(Rect2(30, 58, 18, 4), Color("c4a574"))
-		draw_colored_polygon(PackedVector2Array([Vector2(24, 46), Vector2(54, 46), Vector2(48, 58), Vector2(30, 58)]), Color("e07a3d"))
-		draw_circle(Vector2(39, 34), 14, Color("c47a45"))
-		draw_colored_polygon(PackedVector2Array([Vector2(22, 36), Vector2(30, 18), Vector2(56, 22), Vector2(52, 40)]), Color("2a241c"))
-		draw_colored_polygon(PackedVector2Array([Vector2(20, 28), Vector2(34, 12), Vector2(58, 16), Vector2(52, 30)]), Color("5d6b52"))
-		draw_colored_polygon(PackedVector2Array([Vector2(34, 12), Vector2(50, 10), Vector2(56, 18), Vector2(40, 20)]), Color("8a5a32"))
-		draw_rect(Rect2(27, 32, 24, 7), Color("1b1814"))
-		draw_circle(Vector2(33, 35), 2.2, Color("e07a3d"))
-		draw_circle(Vector2(45, 35), 2.2, Color("e07a3d"))
-		draw_circle(Vector2(22, 58), 1.8, Color("c4a574"))
-		draw_circle(Vector2(56, 66), 1.8, Color("c4a574"))
-		draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
-
-
-class EnemyMark:
-	extends Control
-	var kind_id := ""
-	var tint := Color("a86848")
-
-	func _draw() -> void:
-		var s := size
-		var u := min(s.x / 96.0, s.y / 104.0)
-		var o := Vector2((s.x - 96.0 * u) * 0.5, s.y - 104.0 * u)
-		draw_set_transform(o, 0, Vector2(u, u))
-		var body := PackedVector2Array([Vector2(28, 40), Vector2(68, 40), Vector2(76, 86), Vector2(20, 86)])
-		match kind_id:
-			"blindado":
-				body = PackedVector2Array([Vector2(18, 36), Vector2(78, 36), Vector2(84, 90), Vector2(12, 90)])
-			"esquiva":
-				body = PackedVector2Array([Vector2(40, 24), Vector2(62, 36), Vector2(58, 90), Vector2(30, 84)])
-			"rapido":
-				body = PackedVector2Array([Vector2(34, 48), Vector2(62, 44), Vector2(66, 86), Vector2(30, 90)])
-			"regenera":
-				body = PackedVector2Array([Vector2(28, 48), Vector2(48, 28), Vector2(68, 48), Vector2(64, 88), Vector2(32, 88)])
-			"espinas":
-				body = PackedVector2Array([Vector2(48, 22), Vector2(70, 48), Vector2(62, 88), Vector2(34, 88), Vector2(26, 48)])
-			"pesado":
-				body = PackedVector2Array([Vector2(16, 50), Vector2(80, 46), Vector2(88, 92), Vector2(8, 92)])
-			"certero":
-				body = PackedVector2Array([Vector2(36, 30), Vector2(70, 36), Vector2(64, 88), Vector2(28, 88)])
-		draw_colored_polygon(body, tint)
-		draw_rect(Rect2(30, 46, 36, 10), Color("1b1814"))
-		draw_circle(Vector2(40, 51), 3, Color("e07a3d"))
-		draw_circle(Vector2(54, 51), 3, Color("e07a3d"))
-		draw_circle(Vector2(26, 62), 2, Color("c4a574"))
-		draw_circle(Vector2(70, 62), 2, Color("c4a574"))
-		if kind_id == "espinas":
-			draw_line(Vector2(48, 22), Vector2(48, 8), Color("e0b24a"), 3)
-		if kind_id == "certero":
-			draw_line(Vector2(70, 36), Vector2(90, 32), Color("f6f0e4"), 2)
-		draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
-
-
-class FamilyMark:
-	extends Control
-	var fam := "rust"
-	var tint := Color("b5c94e")
-
-	func _draw() -> void:
-		var c := size * 0.5
-		draw_circle(c, min(size.x, size.y) * 0.46, tint)
-		var ink := Color("1b1814")
-		match fam:
-			"rust":
-				draw_circle(c + Vector2(0, 2), 6, ink)
-				draw_circle(c + Vector2(-4, -2), 2, ink)
-			"tesla":
-				draw_colored_polygon(PackedVector2Array([c + Vector2(-2, -8), c + Vector2(4, -1), c + Vector2(0, -1), c + Vector2(3, 8), c + Vector2(-4, 1), c + Vector2(0, 1)]), ink)
-			"salvage":
-				draw_rect(Rect2(c + Vector2(-6, -2), Vector2(12, 4)), ink)
-				draw_rect(Rect2(c + Vector2(-2, -6), Vector2(4, 12)), ink)
-			"vapor":
-				draw_circle(c + Vector2(-4, 2), 4, ink)
-				draw_circle(c + Vector2(4, 0), 5, ink)
-			"remache":
-				draw_circle(c + Vector2(-5, 0), 3, ink)
-				draw_circle(c + Vector2(5, 0), 3, ink)
-			"escapement":
-				draw_arc(c, 6, 0, TAU, 8, ink, 2.0, true)
-				draw_line(c, c + Vector2(0, -5), ink, 1.5)
-			"reso":
-				draw_arc(c + Vector2(0, 2), 5, PI * 1.1, TAU * 0.95, 8, ink, 2.0, true)
-			"auto":
-				draw_rect(Rect2(c + Vector2(-5, -5), Vector2(10, 10)), ink)
-			_:
-				draw_circle(c, 3, ink)
+		if tex == null:
+			return
+		var bob := sin(_t * 2.2 + phase) * 5.0
+		draw_texture_rect(tex, Rect2(Vector2(0, bob), size), false)
 
 
 class CritBurst:

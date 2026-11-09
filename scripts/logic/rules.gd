@@ -61,6 +61,7 @@ static func make_enemy(db: ContentDB, step: int, kind: String, rng: SeededRng) -
 	hp = float(JsMath.js_round(hp))
 	atk = float(JsMath.js_round(atk * 10.0)) / 10.0
 	return {
+		"id": str(src.get("id", "")),
 		"name": str(src.name),
 		"kind": kind,
 		"trait": trait_id,
