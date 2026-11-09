@@ -87,10 +87,12 @@ var _combat_cb: Callable = Callable()
 var _combat_after_hp := 0.0
 var _hp_bar: ProgressBar
 var _ehp_bar: ProgressBar
-var _shield_bar: ProgressBar
-var _log_box: RichTextLabel
-var _status: Label
+var _player_nums: Label
+var _enemy_nums: Label
+var _log_lines: Array = []
+var _log_labels: Array = []
 var _turn_label: Label
+var _stats_open := false
 var _after: VBoxContainer
 var _timer: Timer
 
@@ -366,7 +368,7 @@ func _drive_async(kind: String) -> void:
 	await get_tree().process_frame
 	await RenderingServer.frame_post_draw
 	var pause := 0.45
-	if kind == "end":
+	if kind == "end" or kind == "combat":
 		pause = 0.9
 	await get_tree().create_timer(pause).timeout
 	if not _shot.has(shot):
@@ -664,44 +666,54 @@ func _paint_header() -> void:
 	var shown := maxi(1, step + 1)
 	var total := maxi(1, chapter.size())
 	var plaque := _panel()
-	var plate := VBoxContainer.new()
 	var banner := _label("%s · Step %d / %d" % [_zone_name(), shown, total], 34, COL_BRASS, false)
 	banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	plate.add_child(banner)
-	var gear_l := _label(str(gear.name), 24, Color(str(fam.color)), false)
-	gear_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	plate.add_child(gear_l)
-	plaque.add_child(plate)
+	plaque.add_child(banner)
 	_header.add_child(plaque)
+	var badge := _panel()
+	var gear_l := _label(str(gear.name), 28, Color(str(fam.color)), false)
+	gear_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	badge.add_child(gear_l)
+	_header.add_child(badge)
 	var track := StepTrack.new()
 	track.chapter = chapter
 	track.here = step
-	track.custom_minimum_size = Vector2(0, 36)
+	track.custom_minimum_size = Vector2(0, 44)
 	_header.add_child(track)
-	_header.add_child(_label("Copper merchant · pale camp · gold boss", 18, COL_MUTED, false))
-	var hp := _bar(COL_HP)
-	hp.max_value = hero.max_hp
-	hp.value = max(0.0, hero.hp)
-	_header.add_child(hp)
-	var flow := HFlowContainer.new()
-	flow.add_theme_constant_override("h_separation", 12)
 	var st: Dictionary = hero.stats()
-	var bits := [
-		"HP %d/%d" % [int(round(hero.hp)), int(round(hero.max_hp))],
-		"%d nuts" % int(hero.coins),
-		"Reroll %d" % hero.rerolls,
-		"Banish %d" % hero.banish_n,
-		"Atk %s" % JsMath.fmt_n(float(st.atk)),
-		"Def %s" % JsMath.fmt_n(float(st.def)),
-		"Crit %s" % JsMath.fmt_p(float(st.crit)),
-		"Eva %s" % JsMath.fmt_p(float(st.eva)),
-		"Acc %s" % JsMath.fmt_p(float(st.acc)),
-	]
-	for bit in bits:
-		var l := _label(bit, 22, COL_MUTED, false)
-		l.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-		flow.add_child(l)
-	_header.add_child(flow)
+	var strip := _panel()
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 14)
+	row.add_child(_stat_chip("hp", str(int(round(hero.hp)))))
+	row.add_child(_stat_chip("nuts", str(int(hero.coins))))
+	row.add_child(_stat_chip("atk", JsMath.fmt_n(float(st.atk))))
+	row.add_child(_stat_chip("def", JsMath.fmt_n(float(st.def))))
+	var more := _button("Close" if _stats_open else "Stats", func():
+		_stats_open = not _stats_open
+		_paint_header()
+	)
+	more.custom_minimum_size = Vector2(118, 64)
+	more.size_flags_horizontal = Control.SIZE_SHRINK_END
+	row.add_child(more)
+	strip.add_child(row)
+	_header.add_child(strip)
+	if _stats_open:
+		var details := _panel()
+		var dv := VBoxContainer.new()
+		dv.add_theme_constant_override("separation", 4)
+		var lines := [
+			"Reroll  %d" % hero.rerolls,
+			"Banish  %d" % hero.banish_n,
+			"Crit  %s" % JsMath.fmt_p(float(st.crit)),
+			"Evasion  %s" % JsMath.fmt_p(float(st.eva)),
+			"Accuracy  %s" % JsMath.fmt_p(float(st.acc)),
+			"On the path: copper is the merchant, pale is camp, gold is the boss.",
+		]
+		for line in lines:
+			dv.add_child(_label(line, 28, COL_TEXT))
+		details.add_child(dv)
+		_header.add_child(details)
 
 
 # ---------- Offers ----------
@@ -846,70 +858,64 @@ func _start_fight(kind: String, sub: int, cb: Callable) -> void:
 	_paint_header()
 	_clear(_body)
 	_clear(_footer)
-	var names := {"boss": "BOSS", "mini": "MINIBOSS", "elite": "Elite", "normal": "Fight"}
-	var head := HBoxContainer.new()
-	head.add_child(_label(names.get(kind, "Fight"), 22, COL_BRASS, false))
+	var pill := _panel()
 	var speeds := HBoxContainer.new()
-	speeds.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	speeds.alignment = BoxContainer.ALIGNMENT_END
+	speeds.alignment = BoxContainer.ALIGNMENT_CENTER
+	speeds.add_theme_constant_override("separation", 8)
 	for sp in [1, 2, 4, 8]:
 		var n := int(sp)
 		var b := _button("x%d" % n, func():
 			speed = n
 		)
-		b.custom_minimum_size = Vector2(68, 60)
-		b.size_flags_horizontal = Control.SIZE_SHRINK_END
+		b.custom_minimum_size = Vector2(72, 64)
+		b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		if n == speed:
 			_style_button(b, COL_PANEL2, COL_BRASS, COL_BRASS)
 		speeds.add_child(b)
 	var skip := _button("Skip", _finish_combat)
-	skip.custom_minimum_size = Vector2(110, 60)
-	skip.size_flags_horizontal = Control.SIZE_SHRINK_END
+	skip.custom_minimum_size = Vector2(120, 64)
+	skip.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	speeds.add_child(skip)
-	head.add_child(speeds)
-	_body.add_child(head)
+	pill.add_child(speeds)
+	_body.add_child(pill)
 	_arena = _diorama
+	var you: Dictionary = _fighter_plate("Chispa", COL_HP)
 	_player_art = _bob("chispa", 0.0)
-	_player_art.add_child(_nameplate("Chispa"))
-	_diorama.add_child(_player_art)
-	var foe_id := _art_id(enemy)
-	_enemy_art = _bob(foe_id, 1.4)
-	_enemy_art.add_child(_nameplate(str(enemy.name)))
-	_diorama.add_child(_enemy_art)
-	_layout_diorama()
-	_hp_bar = _bar(COL_HP)
+	_player_art.add_child(you.root)
+	_hp_bar = you.bar
+	_player_nums = you.nums
 	_hp_bar.max_value = hero.max_hp
 	_hp_bar.value = hp0
-	_footer.add_child(_hp_bar)
-	_shield_bar = _bar(COL_SHIELD)
-	_shield_bar.max_value = hero.max_hp
-	_shield_bar.value = 0
-	_footer.add_child(_shield_bar)
-	_status = _label("", 22, COL_TEXT)
-	_footer.add_child(_status)
-	_ehp_bar = _bar(COL_ENEMY)
+	_player_nums.text = "%d / %d" % [int(round(hp0)), int(round(hero.max_hp))]
+	_diorama.add_child(_player_art)
+	var foe: Dictionary = _fighter_plate(str(enemy.name), COL_ENEMY)
+	_enemy_art = _bob(_art_id(enemy), 1.4)
+	_enemy_art.add_child(foe.root)
+	_ehp_bar = foe.bar
+	_enemy_nums = foe.nums
 	_ehp_bar.max_value = float(enemy.maxHp)
 	_ehp_bar.value = float(enemy.maxHp)
-	_footer.add_child(_ehp_bar)
-	_turn_label = _label("Turn 0", 24, COL_BRASS)
+	_enemy_nums.text = "%d / %d" % [int(enemy.maxHp), int(enemy.maxHp)]
+	_diorama.add_child(_enemy_art)
+	_layout_diorama()
+	var turn_chip := _panel()
+	_turn_label = _label("Turn 0", 28, COL_BRASS, false)
 	_turn_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_footer.add_child(_turn_label)
-	_log_box = RichTextLabel.new()
-	_log_box.bbcode_enabled = true
-	_log_box.scroll_following = true
-	_log_box.custom_minimum_size = Vector2(0, 168)
-	_log_box.size_flags_vertical = Control.SIZE_SHRINK_END
-	_log_box.add_theme_color_override("default_color", COL_TEXT)
-	_log_box.add_theme_font_size_override("normal_font_size", 24)
-	var log_bg := StyleBoxFlat.new()
-	log_bg.bg_color = Color("100e0c")
-	log_bg.set_corner_radius_all(10)
-	log_bg.content_margin_left = 8
-	log_bg.content_margin_right = 8
-	log_bg.content_margin_top = 8
-	log_bg.content_margin_bottom = 8
-	_log_box.add_theme_stylebox_override("normal", log_bg)
-	_footer.add_child(_log_box)
+	turn_chip.add_child(_turn_label)
+	_footer.add_child(turn_chip)
+	_log_lines = []
+	_log_labels = []
+	var log_panel := _panel()
+	var log_col := VBoxContainer.new()
+	log_col.add_theme_constant_override("separation", 2)
+	log_panel.custom_minimum_size = Vector2(0, 118)
+	for _i in 3:
+		var line := _label("", 24, COL_TEXT)
+		line.modulate.a = 0.0
+		log_col.add_child(line)
+		_log_labels.append(line)
+	log_panel.add_child(log_col)
+	_footer.add_child(log_panel)
 	_after = VBoxContainer.new()
 	_footer.add_child(_after)
 	_fade()
@@ -952,6 +958,57 @@ func _portrait(art_id: String, height: float) -> Control:
 	return s
 
 
+func _stat_chip(kind: String, value: String) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var glyph := StatGlyph.new()
+	glyph.kind = kind
+	glyph.custom_minimum_size = Vector2(34, 34)
+	glyph.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(glyph)
+	var num := _label(value, 28, COL_TEXT, false)
+	num.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	row.add_child(num)
+	return row
+
+
+func _fighter_plate(who: String, fill: Color) -> Dictionary:
+	var box := VBoxContainer.new()
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_theme_constant_override("separation", 2)
+	var title := _label(who, 26, COL_BRASS, false)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(title)
+	var bar := _bar(fill)
+	bar.custom_minimum_size = Vector2(180, 26)
+	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_child(bar)
+	var nums := _label("0 / 0", 22, COL_TEXT, false)
+	nums.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(nums)
+	return {"root": box, "bar": bar, "nums": nums}
+
+
+func _push_log(color: String, text: String) -> void:
+	_log_lines.append({"c": color, "t": text})
+	if _log_labels.size() < 3:
+		return
+	var start := maxi(0, _log_lines.size() - 3)
+	var shown: Array = _log_lines.slice(start)
+	for i in 3:
+		var lab: Label = _log_labels[i]
+		var src := i - (3 - shown.size())
+		if src < 0:
+			lab.text = ""
+			lab.modulate.a = 0.0
+			continue
+		var row: Dictionary = shown[src]
+		lab.text = str(row.t)
+		lab.add_theme_color_override("font_color", Color(str(row.c)))
+		lab.modulate.a = 0.38 if i == 0 else (0.68 if i == 1 else 1.0)
+
+
 func _nameplate(text: String) -> Label:
 	var l := _label(text, 26, COL_BRASS, true)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -985,12 +1042,12 @@ func _layout_diorama() -> void:
 	var w := _diorama.size.x
 	if h < 40.0:
 		return
-	var foot := h * 0.62
-	_seat(_player_art, w * 0.28, foot, h * 0.30)
-	var foe_h := h * 0.32
+	var foot := h * 0.66
+	_seat(_player_art, w * 0.24, foot, h * 0.22)
+	var foe_h := h * 0.22
 	if _combat_kind == "boss" or _combat_kind == "mini":
-		foe_h = h * 0.40
-	_seat(_enemy_art, w * 0.73, foot - h * 0.012, foe_h)
+		foe_h = h * 0.28
+	_seat(_enemy_art, w * 0.78, foot, foe_h)
 
 
 func _seat(node: Control, center_x: float, foot: float, height: float) -> void:
@@ -1004,10 +1061,9 @@ func _seat(node: Control, center_x: float, foot: float, height: float) -> void:
 	node.size = Vector2(sw, height)
 	node.position = Vector2(center_x - sw * 0.5, foot - height)
 	for c in node.get_children():
-		if c is Label:
-			var lab := c as Label
-			lab.position = Vector2((sw - 240.0) * 0.5, -40.0)
-			lab.size = Vector2(240, 56)
+		var plate := c as Control
+		plate.position = Vector2((sw - 220.0) * 0.5, -116.0)
+		plate.size = Vector2(220, 112)
 
 
 func _combat_tick() -> void:
@@ -1024,27 +1080,27 @@ func _combat_tick() -> void:
 func _paint_line(en: Dictionary, shake: bool) -> void:
 	var col := str(LOG_COLOR.get(str(en.k), "#f6f1e7"))
 	var prefix := ("T%d · " % int(en.turn)) if int(en.turn) else ""
-	_log_box.append_text("[color=%s]%s%s[/color]\n" % [col, prefix, str(en.text)])
-	_hp_bar.max_value = float(en.maxHp)
-	_hp_bar.value = float(en.hp)
-	_shield_bar.max_value = float(en.maxHp)
-	_shield_bar.value = min(float(en.maxHp), float(en.shield))
-	_ehp_bar.max_value = float(_combat_enemy.maxHp)
-	_ehp_bar.value = float(en.ehp)
-	_turn_label.text = "Turn %d" % int(en.turn)
-	var bits := "%d/%d" % [int(en.ehp), int(_combat_enemy.maxHp)]
-	if int(en.poison):
-		bits += "  rust %d" % int(en.poison)
-	if int(en.burn):
-		bits += "  scald %d" % int(en.burn)
-	if float(en.res) > 0.0:
-		bits += "  resonance %s" % JsMath.fmt_n(float(en.res))
-	if float(en.mag) > 0.0:
-		bits += "  charge %s" % JsMath.fmt_n(float(en.mag))
-	_status.text = "You %d/%d" % [int(en.hp), int(en.maxHp)]
-	if int(en.shield):
-		_status.text += "  shield %d" % int(en.shield)
-	_status.text += "\n" + bits
+	_push_log(col, prefix + str(en.text))
+	if _hp_bar != null:
+		_hp_bar.max_value = float(en.maxHp)
+		_hp_bar.value = float(en.hp)
+	if _ehp_bar != null:
+		_ehp_bar.max_value = float(_combat_enemy.maxHp)
+		_ehp_bar.value = float(en.ehp)
+	if _turn_label != null:
+		_turn_label.text = "Turn %d" % int(en.turn)
+	if _player_nums != null:
+		var you := "%d / %d" % [int(en.hp), int(en.maxHp)]
+		if int(en.shield) > 0:
+			you += "  ·  shield %d" % int(en.shield)
+		_player_nums.text = you
+	if _enemy_nums != null:
+		var foe := "%d / %d" % [int(en.ehp), int(_combat_enemy.maxHp)]
+		if int(en.poison):
+			foe += "  ·  rust %d" % int(en.poison)
+		if int(en.burn):
+			foe += "  ·  scald %d" % int(en.burn)
+		_enemy_nums.text = foe
 	var kind := str(en.k)
 	if shake and kind in ["hit", "crit", "enemy", "bolt", "thorns", "poison", "burn", "reso", "auto", "mag"]:
 		var num := _first_number(str(en.text))
@@ -1507,6 +1563,37 @@ func _show_end(win: bool, enemy: Dictionary) -> void:
 	_drive("end")
 
 
+class StatGlyph:
+	extends Control
+
+	var kind := "nuts"
+
+	func _draw() -> void:
+		var c := size * 0.5
+		var brass := Color("e0b24a")
+		match kind:
+			"hp":
+				draw_circle(c + Vector2(-5, -2), 5.5, Color("e07a3d"))
+				draw_circle(c + Vector2(5, -2), 5.5, Color("e07a3d"))
+				draw_colored_polygon(PackedVector2Array([c + Vector2(-10, 1), c + Vector2(0, 12), c + Vector2(10, 1)]), Color("e07a3d"))
+			"atk":
+				draw_colored_polygon(PackedVector2Array([
+					c + Vector2(-2, -12), c + Vector2(5, -2), c + Vector2(1, -2),
+					c + Vector2(4, 12), c + Vector2(-5, 1), c + Vector2(-1, 1),
+				]), brass)
+			"def":
+				draw_colored_polygon(PackedVector2Array([
+					c + Vector2(0, -11), c + Vector2(10, -6), c + Vector2(8, 6),
+					c + Vector2(0, 12), c + Vector2(-8, 6), c + Vector2(-10, -6),
+				]), Color("7dcec4"))
+			_:
+				draw_colored_polygon(PackedVector2Array([
+					c + Vector2(0, -10), c + Vector2(9, -5), c + Vector2(9, 5),
+					c + Vector2(0, 10), c + Vector2(-9, 5), c + Vector2(-9, -5),
+				]), brass)
+				draw_circle(c, 3.5, Color("1c1612"))
+
+
 class StepTrack:
 	extends Control
 	var chapter: Array = []
@@ -1516,11 +1603,11 @@ class StepTrack:
 		var count := chapter.size()
 		if count <= 0:
 			return
-		var y := size.y * 0.35
-		var bar_h := 14.0
-		draw_rect(Rect2(0, y, size.x, bar_h), Color("100e0c"))
+		var bar_h := 10.0
+		var y := (size.y - bar_h) * 0.5
+		draw_rect(Rect2(0, y, size.x, bar_h), Color("2a2118"))
 		var filled := clampf(float(here + 1) / float(count), 0.0, 1.0)
-		draw_rect(Rect2(0, y, size.x * filled, bar_h), Color("2f8f84"))
+		draw_rect(Rect2(0, y, size.x * filled, bar_h), Color("a56a3a"))
 		for i in count:
 			var kind := str(chapter[i])
 			var mark := Color(0, 0, 0, 0)
