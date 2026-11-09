@@ -334,8 +334,36 @@ func xp_reward(steps_reached: int, won: bool) -> Dictionary:
 	return {"steps": steps, "miniboss": boss_bit, "victory": victory, "total": steps + boss_bit + victory}
 
 
-func grant_xp(amount: int) -> void:
+func grant_xp(amount: int) -> Dictionary:
+	var before_xp := xp
+	var before := character_level()
 	xp += maxi(0, amount)
+	var after := character_level()
+	var scrap_n := 0
+	var hp := 0
+	var atk := 0
+	var defn := 0
+	if after > before:
+		for row in _level_table():
+			var lv := int(row.level)
+			if lv <= before or lv > after:
+				continue
+			scrap_n += int(row.get("scrap", 0))
+			hp += int(row.get("hp", 0))
+			atk += int(row.get("atk", 0))
+			defn += int(row.get("def", 0))
+		scrap += scrap_n
+		scrap_earned += scrap_n
+	return {
+		"xpBefore": before_xp,
+		"xpAfter": xp,
+		"from": before,
+		"to": after,
+		"scrap": scrap_n,
+		"hp": hp,
+		"atk": atk,
+		"def": defn,
+	}
 
 
 func _level_table() -> Array:
@@ -381,6 +409,57 @@ func level_bonus() -> Dictionary:
 		atk += int(row.get("atk", 0))
 		defn += int(row.get("def", 0))
 	return {"hp": hp, "atk": atk, "def": defn}
+
+
+func progress_at(total_xp: int) -> Dictionary:
+	var lv := 1
+	var cur := 0
+	var nxt := 0
+	var found_next := false
+	for row in _level_table():
+		if total_xp >= int(row.xp) and int(row.level) > lv:
+			lv = int(row.level)
+	for row in _level_table():
+		if int(row.level) == lv:
+			cur = int(row.xp)
+		if int(row.level) == lv + 1:
+			nxt = int(row.xp)
+			found_next = true
+	if not found_next:
+		return {"level": lv, "have": 1, "span": 1, "atMax": true}
+	return {"level": lv, "have": maxi(0, total_xp - cur), "span": maxi(1, nxt - cur), "atMax": false}
+
+
+func next_reward() -> Dictionary:
+	var lv := character_level()
+	var stat_lv := 999
+	var stat_row: Dictionary = {}
+	for row in _level_table():
+		if int(row.level) <= lv:
+			continue
+		if int(row.get("hp", 0)) <= 0 and int(row.get("atk", 0)) <= 0 and int(row.get("def", 0)) <= 0:
+			continue
+		stat_lv = int(row.level)
+		stat_row = row
+		break
+	var skill_lv := 999
+	var skill_name := ""
+	for s in db.skills:
+		var req := int(s.get("requiredLevel", 0))
+		if req > lv and req < skill_lv:
+			skill_lv = req
+			skill_name = str(s.name)
+	if stat_lv == 999 and skill_lv == 999:
+		return {}
+	if skill_lv < stat_lv:
+		return {"kind": "skill", "level": skill_lv, "name": skill_name}
+	return {
+		"kind": "stat",
+		"level": stat_lv,
+		"hp": int(stat_row.get("hp", 0)),
+		"atk": int(stat_row.get("atk", 0)),
+		"def": int(stat_row.get("def", 0)),
+	}
 
 
 func xp_into_level() -> Dictionary:
