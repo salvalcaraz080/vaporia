@@ -51,6 +51,8 @@ var corazon := false
 var bucle := false
 var aurea := false
 var fortaleza := false
+var forja := false
+var welded := false
 
 
 static func run(content: ContentDB, hero: HeroState, enemy: Dictionary, random: SeededRng, want_log: bool) -> Dictionary:
@@ -78,14 +80,26 @@ func _run(content: ContentDB, hero: HeroState, enemy: Dictionary, random: Seeded
 	first_miss = h.md("firstMiss") > 0.0
 	flasks = 2 if lv("a_frasco") >= 3 else (1 if lv("a_frasco") > 0 else 0)
 	heal_mult = 1.0 + sv("a_piedra")
+	if gf == "salvage":
+		heal_mult += float(bal.gearSalvage)
 	catal = sv("a_catalizador")
-	plaga = lv("o_plaga") > 0 and h.fam_count("vitriol") >= 4
+	plaga = lv("o_plaga") > 0 and h.fam_count("rust") >= 4
+	forja = lv("sa_forja") > 0 and h.fam_count("salvage") >= 4
+	if forja:
+		heal_mult += sv("sa_forja")
 	corazon = lv("v_corazon") > 0 and h.fam_count("vapor") >= 4
 	bucle = lv("e_mecanismo") > 0 and h.fam_count("escapement") >= 4
 	aurea = lv("a_aurea") > 0 and h.fam_count("vitriol") >= 4
 	fortaleza = lv("r_fortaleza") > 0 and float(ST.def) >= 20.0
 
 	_log("info", "A " + str(e.name) + " shows up. Defense " + str(int(e.def)) + " · Evasion " + JsMath.fmt_p(float(e.eva)) + " · Accuracy +" + JsMath.fmt_p(float(e.acc)) + ((" · " + str(db.traits[e.trait])) if str(e.trait) != "" else ""))
+	if lv("sa_aceite") > 0:
+		var film := h.max_hp * sv("sa_aceite")
+		shield += film
+	if lv("sa_junta") > 0:
+		var seam := _cure(h.max_hp * sv("sa_junta"))
+		if seam >= 1.0:
+			_log("heal", "Seam tape: +" + str(JsMath.js_round(seam)))
 	if shield > 0.0:
 		_log("shield", "Starting shield: +" + str(JsMath.js_round(shield)))
 	if lv("o_gota") >= 5:
@@ -105,9 +119,21 @@ func _run(content: ContentDB, hero: HeroState, enemy: Dictionary, random: Seeded
 			var restored := _cure(reg)
 			if restored >= 1.0:
 				_log("heal", "Regeneration: +" + str(JsMath.js_round(restored)))
+		if lv("o_costra") > 0:
+			e.poison = float(e.poison) + sv("o_costra")
+		if lv("sa_placa") > 0:
+			shield += h.max_hp * sv("sa_placa")
+		if not welded and lv("sa_remiendo") > 0 and h.hp > 0.0 and h.hp < h.max_hp * 0.4:
+			welded = true
+			var weld := _cure(h.max_hp * sv("sa_remiendo"))
+			if weld >= 1.0:
+				_log("heal", "Field weld: +" + str(JsMath.js_round(weld)))
 		if float(e.poison) > 0.0:
-			var pl := plaga and float(e.poison) >= 15.0
-			var amt := float(e.poison) * float(ST.atk) * float(bal.poisonK) * (1.0 + sv("o_conc") + h.md("dotPct") + catal + (sv("o_plaga") if pl else 0.0))
+			var pl := plaga and float(e.poison) >= 28.0
+			var stacks := 0.0
+			if lv("o_sarro") > 0:
+				stacks = sv("o_sarro") * floor(float(e.poison) / 10.0)
+			var amt := float(e.poison) * float(ST.atk) * float(bal.poisonK) * (1.0 + catal + sv("o_eterna") + stacks + h.md("dotPct") + (sv("o_plaga") if pl else 0.0))
 			var pc := false
 			if lv("o_brecha") > 0 and rng.nextf() < _crit_now() * sv("o_brecha"):
 				pc = true
@@ -115,21 +141,13 @@ func _run(content: ContentDB, hero: HeroState, enemy: Dictionary, random: Seeded
 				amt *= _crit_dmg_now()
 			var dmg_n := _deal(amt, "oxido", false, true, false)
 			_log("poison", "Rust (" + str(JsMath.js_round(float(e.poison))) + "): " + str(dmg_n) + (" CRITICAL" if pc else "") + (" · plague" if pl else ""))
-			if lv("y_acido") > 0:
-				_cure(float(dmg_n) * sv("y_acido"))
-			var eterna := float(db.skill_by_id.o_eterna.vals[lv("o_eterna") - 1]) if lv("o_eterna") > 0 else 1.0
-			var every := maxi(int(eterna), 2 if lv("o_conc") >= 5 else 1)
-			if not pl and turn % every == 0:
-				e.poison = float(e.poison) * (1.0 - float(bal.poisonDecay)) - 0.5
-				if float(e.poison) < 0.5:
-					e.poison = 0.0
 			if float(e.hp) <= 0.0:
 				break
 		if int(e.burn) > 0:
 			burn_t += 1
 			var tox: float = 1.0 + sv("y_corrosivo") * minf(20.0, float(e.poison))
 			var cz: float = (1.0 + sv("v_corazon") * float(mini(20, burn_t))) if corazon else 1.0
-			var dmg_b := _deal(float(ST.atk) * float(bal.burnK) * (1.0 + sv("v_caldera") + h.md("dotPct") + catal) * tox * cz, "vapor", false, true, false)
+			var dmg_b := _deal(float(ST.atk) * float(bal.burnK) * (1.0 + sv("v_caldera") + h.md("dotPct")) * tox * cz, "vapor", false, true, false)
 			if not corazon:
 				e.burn = int(e.burn) - 1
 			_log("burn", "Scald: " + str(dmg_b))
@@ -189,13 +207,24 @@ func _run(content: ContentDB, hero: HeroState, enemy: Dictionary, random: Seeded
 		if lv("r_ariete") > 0 and turn % 4 == 0 and float(e.hp) > 0.0:
 			var dmg_a := _deal(float(ST.def) * sv("r_ariete") + _atk_now() * 0.6, "remache", false, false, false)
 			_log("thorns", "Battering ram! " + str(dmg_a))
-		if lv("a_vial") > 0 and turn % 3 == 0 and float(e.hp) > 0.0:
-			var dmg_vi := _deal(_atk_now() * sv("a_vial") * (1.0 + catal), "alquimia", false, false, true)
-			_log("hit", "Corrosive vial: " + str(dmg_vi))
-		if lv("a_mercurio") > 0 and turn % 4 == 0 and float(e.hp) > 0.0:
-			var dmg_me := _deal(_atk_now() * sv("a_mercurio") * (1.0 + catal), "alquimia", false, false, false)
-			var got := _cure(float(dmg_me) * 0.15)
-			_log("heal", "Mercury flask: " + str(dmg_me) + " damage, +" + str(JsMath.js_round(got)) + " HP")
+		if lv("a_vial") > 0 and turn % 3 == 0:
+			e.poison = float(e.poison) + sv("a_vial")
+			_log("poison", "Rust vial: +" + JsMath.fmt_n(sv("a_vial")) + " rust")
+		if lv("sa_cascajo") > 0 and turn % 4 == 0:
+			var mend := _cure(h.max_hp * sv("sa_cascajo"))
+			if mend >= 1.0:
+				_log("heal", "Scrap cycle: +" + str(JsMath.js_round(mend)))
+		if lv("sa_horno") > 0 and turn % 5 == 0:
+			var kiln := _cure(h.max_hp * sv("sa_horno"))
+			if kiln >= 1.0:
+				_log("heal", "Kiln rest: +" + str(JsMath.js_round(kiln)))
+		if lv("t_jaula") > 0 and turn % 4 == 0 and float(e.hp) > 0.0:
+			_bolt(sv("t_jaula"), "Arc Cage")
+		if lv("t_chisporroteo") > 0 and float(e.hp) > 0.0 and rng.nextf() < sv("t_chisporroteo"):
+			_bolt(0.75, "Crackle")
+		if lv("o_quema") > 0 and float(e.poison) >= 16.0 and turn % 4 == 0 and float(e.hp) > 0.0:
+			var dmg_q := _deal(_atk_now() * float(e.poison) * sv("o_quema"), "oxido", false, false, true)
+			_log("poison", "Rust bloom: " + str(dmg_q))
 		if lv("m_pulso") > 0 and turn % 4 == 0 and float(e.hp) > 0.0:
 			var dmg_p := _deal(_atk_now() * sv("m_pulso") * (1.0 + 0.04 * float(e.mag)), "iman", false, false, false)
 			_log("mag", "Magnetic pulse: " + str(dmg_p))
@@ -330,12 +359,14 @@ func _def_mult(defn: float) -> float:
 
 
 func _gear_src(src: String) -> bool:
-	if gf == "vitriol":
-		return src == "oxido" or src == "alquimia"
-	if gf == "galvanism":
-		return src == "tesla" or src == "iman"
+	if gf == "rust":
+		return src == "oxido"
+	if gf == "tesla":
+		return src == "tesla"
 	if gf == "escapement":
 		return src == "ataque" or src == "reloj"
+	if gf == "salvage":
+		return src == "ataque"
 	return src == gf
 
 
@@ -346,21 +377,24 @@ func _deal(amt: float, src: String, attack: bool, dot: bool, pierce: bool) -> in
 			m += float(bal.gearHitBonus)
 		elif gf == "vapor":
 			m += float(bal.gearVapor)
-		elif gf == "vitriol":
-			m += float(bal.gearVitriol)
-		elif gf == "galvanism":
-			m += float(bal.gearGalvanism)
+		elif gf == "rust":
+			m += float(bal.gearRust)
+		elif gf == "tesla":
+			m += float(bal.gearTesla)
+		elif gf == "salvage":
+			m += float(bal.gearSalvageHit)
 		elif gf == "auto":
 			m += float(bal.gearAuto)
 		elif gf == "remache":
 			m += float(bal.gearRemache)
+		elif gf == "reso":
+			m += float(bal.gearReso)
 		else:
 			m += float(bal.gearBonus)
-	if float(e.poison) >= 8.0:
+	if float(e.poison) >= 16.0:
 		m += sv("o_corr")
 	if int(e.burn) > 0:
 		m += sv("v_presion")
-	m += float(e.mag) * (sv("m_atrac") + (float(bal.gearMag) if gf == "galvanism" else 0.0))
 	if float(e.hp) > float(e.maxHp) * 0.7:
 		m += sv("a_volatil")
 	if attack and float(e.hp) < float(e.maxHp) * 0.3:
@@ -381,6 +415,8 @@ func _cure(amt: float) -> float:
 	h.hp += real
 	if lv("a_piedra") > 0 and amt > real:
 		shield += amt - real
+	if forja and real >= 1.0:
+		shield += real * 0.35
 	if aurea and real >= 1.0 and float(e.hp) > 0.0 and not in_cure:
 		in_cure = true
 		var dealt := _deal(real * sv("a_aurea"), "alquimia", false, false, true)
@@ -399,10 +435,8 @@ func _detonate() -> void:
 		e.res = float(e.res) - th
 		detos += 1
 		var nota := lv("s_nota") > 0 and detos > 4
-		var pct := float(bal.detonK) * (1.0 + sv("s_campana") + (0.5 if lv("s_diapason") >= 5 else 0.0) + (sv("s_nota") if nota else 0.0)) * (1.0 + sv("y_vibra") * float(e.mag))
+		var pct := float(bal.detonK) * (1.0 + sv("s_campana") + (0.5 if lv("s_diapason") >= 5 else 0.0) + (sv("s_nota") if nota else 0.0)) * (1.0 + sv("y_vibra"))
 		var dealt := _deal(_atk_now() * pct, "reso", false, false, true)
-		if lv("y_vibra") > 0:
-			_add_mag(3)
 		if lv("s_grieta") > 0:
 			def_loss += sv("s_grieta")
 		if lv("s_vibrato") > 0 and vib < 5:
@@ -430,13 +464,11 @@ func _bolt(pct: float, label: String) -> void:
 	for i in n:
 		if float(e.hp) <= 0.0:
 			break
-		if lv("y_electro") > 0:
-			_add_mag(1)
-		var amt := _atk_now() * pct * (1.0 + sv("y_electro") * float(e.mag)) * (1.0 + sv("t_sobrecarga"))
+		var amt := _atk_now() * pct * (1.0 + sv("y_electro")) * (1.0 + sv("t_sobrecarga")) * (1.0 + sv("t_corona"))
 		var cr := lv("t_estatica") > 0 and rng.nextf() < sv("t_estatica")
 		if cr:
 			amt *= _crit_dmg_now()
-		var dealt := _deal(amt, "tesla", false, false, false)
+		var dealt := _deal(amt, "tesla", false, false, lv("t_corona") > 0)
 		bolts += 1
 		if lv("t_cond") > 0:
 			cond_stacks = mini(20, cond_stacks + 1)
@@ -447,6 +479,11 @@ func _bolt(pct: float, label: String) -> void:
 			e.stun = maxi(int(e.stun), 1)
 			stunned = " · stunned!"
 		_log("bolt", label + (" (arc)" if i else "") + ": " + str(dealt) + " discharge" + (" CRITICAL" if cr else "") + stunned)
+		_add_res(sv("y_bobres"))
+	if lv("t_replica") > 0 and float(e.hp) > 0.0:
+		var echo := _deal(_atk_now() * sv("t_replica") * (1.0 + sv("y_electro")) * (1.0 + sv("t_sobrecarga")), "tesla", false, false, lv("t_corona") > 0)
+		bolts += 1
+		_log("bolt", "Aftershock: " + str(echo))
 		_add_res(sv("y_bobres"))
 
 
@@ -500,6 +537,10 @@ func _strike(label: String, src: String, extra: bool, mult: float) -> void:
 	var kit := 0.15 * float(mini(h.fam_count("escapement"), 5))
 	var amp := teeth if teeth > kit else kit
 	var amt := _atk_now() * (0.9 + rng.nextf() * 0.2) * mult * (float(bal.extraMult) if extra else float(bal.hitMult)) * (1.0 + amp)
+	if lv("o_capa") > 0 and float(e.poison) > 0.0:
+		amt += _atk_now() * float(e.poison) * sv("o_capa")
+	if lv("sa_rebaba") > 0:
+		amt += (_atk_now() + shield) * sv("sa_rebaba")
 	if crit:
 		amt *= _crit_dmg_now() + (sv("y_ancora") if extra else 0.0) + (sv("e_mecanismo") if meca else 0.0)
 	if swing % 3 == 0:
@@ -538,7 +579,7 @@ func _strike(label: String, src: String, extra: bool, mult: float) -> void:
 	if float(e.hp) > 0.0 and crit and lv("y_chispaprec") > 0:
 		_bolt(sv("y_chispaprec"), "Precision Spark")
 	if float(e.hp) > 0.0 and lv("t_tormenta") > 0 and bolts >= 8:
-		_bolt(sv("t_tormenta"), "Bottled Storm")
+		_bolt(sv("t_tormenta"), "Living Arc")
 	if lv("s_diapason") > 0:
 		_add_res(sv("s_diapason"))
 
@@ -590,6 +631,8 @@ func _enemy_hit(hm: float, heavy: bool) -> void:
 			_automatons(sv("u_resortes"), "Springs")
 		return
 	var raw := float(e.atk) * (1.25 if e.enraged else 1.0) * heat * hm * (0.9 + rng.nextf() * 0.2) * (1.0 + h.md("enemyAtk")) * (1.0 - _atk_down())
+	if h.hp < h.max_hp * 0.5:
+		raw *= 1.0 - sv("sa_coraza")
 	if int(e.burn) > 0:
 		raw *= 1.0 - sv("y_dilatado")
 	raw *= max(0.3, 1.0 - sv("r_doble") + h.md("dmgTaken"))

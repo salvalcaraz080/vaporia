@@ -197,14 +197,17 @@ static func _family_gear(db: ContentDB, fam_id: String, mode: String, r: int) ->
 static func run_one(db: ContentDB, r: int, pol: String, agg: Dictionary) -> Dictionary:
 	var seed := "SIM-" + str(r)
 	var gear := str(db.gears[r % db.gears.size()].id)
-	# fam:<id>:on and fam:<id>:off share a bot seed. Off-gear rotates the other six tools.
+	# fam:<id>:on and fam:<id>:off share a bot seed. Off-gear rotates the other tools.
+	var focus := ""
 	if pol.begins_with("fam:"):
 		var bits := pol.split(":")
 		var fam_id := str(bits[1])
 		var mode := str(bits[2]) if bits.size() > 2 else "on"
 		gear = _family_gear(db, fam_id, mode, r)
+		focus = fam_id
 		pol = "fam:" + fam_id
 	var h = HeroState.create(db, gear)
+	h.focus_fam = focus
 	var rng_o := SeededRng.new(seed + "|ofertas")
 	var rng_e := SeededRng.new(seed + "|eventos")
 	var rng_en := SeededRng.new(seed + "|enemigos")

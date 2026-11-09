@@ -1,7 +1,6 @@
 // Builds data/game.json from reference/core.ts plus English copy.
 // Run: node --experimental-strip-types tools/build_content.mjs
 import { readFileSync, writeFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -756,7 +755,4 @@ const game = {
 const out = new URL("../data/game.json", import.meta.url);
 writeFileSync(out, JSON.stringify(game));
 console.log("wrote", out.pathname, "skills", skills.length, "events", events.length, "bytes", JSON.stringify(game).length);
-const merge = spawnSync("python3", [new URL("./merge_families.py", import.meta.url).pathname], { stdio: "inherit" });
-if (merge.status !== 0) {
-  process.exit(merge.status ?? 1);
-}
+console.log("this rebuilds the v3 reference. Shipping families live in data/game.json; do not overwrite them with this output.");
