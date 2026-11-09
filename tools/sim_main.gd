@@ -11,6 +11,7 @@ func _init() -> void:
 	var policies := ["random", "greedy", "rarity"]
 	var smoke := false
 	var trace := false
+	var matrix := false
 	var i := 0
 	while i < args.size():
 		var a := str(args[i])
@@ -26,12 +27,19 @@ func _init() -> void:
 			smoke = true
 		if a == "--trace":
 			trace = true
+		if a == "--matrix":
+			matrix = true
 		i += 1
 	var db = ContentDB.load_default()
 	if db.skills.is_empty():
 		push_error("content failed to load")
 		quit(1)
 		return
+	if matrix:
+		policies = ["greedy"]
+		for fam in db.families:
+			policies.append("fam:%s:on" % str(fam.id))
+			policies.append("fam:%s:off" % str(fam.id))
 	if trace:
 		for pol in policies:
 			var canon := str(SimCore.POLICIES.get(str(pol), pol))
@@ -51,6 +59,16 @@ func _init() -> void:
 	var out: Dictionary = SimCore.run_all(db, runs, policies)
 	var dt := (Time.get_ticks_msec() - t0) / 1000.0
 	for res in out.results:
+		print("TABLE %s %s" % [res.policy, res.winRate])
+		if str(res.policy).begins_with("fam:"):
+			var fam_id := str(res.policy).split(":")[1]
+			var drafted := 0
+			var seen := 0
+			for key in res.byDominantFamily.keys():
+				seen += int(res.byDominantFamily[key].n)
+				if str(key) == fam_id:
+					drafted = int(res.byDominantFamily[key].n)
+			print("  drafted %s on %d/%d" % [fam_id, drafted, seen])
 		print("== %s win %s%% | fights %s | skill levels %s | unspent tuercas %s" % [res.policy, res.winRate, res.avgFights, res.avgSkillLevels, res.tuercas])
 		print("  deaths: %s" % JSON.stringify(res.deathSegments))
 		var death_n := 0

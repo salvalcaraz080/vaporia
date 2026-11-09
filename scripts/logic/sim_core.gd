@@ -181,9 +181,29 @@ static func simulate(db: ContentDB, n: int, policy: String) -> Dictionary:
 	}
 
 
+static func _family_gear(db: ContentDB, fam_id: String, mode: String, r: int) -> String:
+	var own := ""
+	var others: Array = []
+	for g in db.gears:
+		if str(g.fam) == fam_id:
+			own = str(g.id)
+		else:
+			others.append(str(g.id))
+	if mode == "off":
+		return str(others[r % others.size()])
+	return own
+
+
 static func run_one(db: ContentDB, r: int, pol: String, agg: Dictionary) -> Dictionary:
 	var seed := "SIM-" + str(r)
 	var gear := str(db.gears[r % db.gears.size()].id)
+	# fam:<id>:on and fam:<id>:off share a bot seed. Off-gear rotates the other six tools.
+	if pol.begins_with("fam:"):
+		var bits := pol.split(":")
+		var fam_id := str(bits[1])
+		var mode := str(bits[2]) if bits.size() > 2 else "on"
+		gear = _family_gear(db, fam_id, mode, r)
+		pol = "fam:" + fam_id
 	var h = HeroState.create(db, gear)
 	var rng_o := SeededRng.new(seed + "|ofertas")
 	var rng_e := SeededRng.new(seed + "|eventos")
@@ -289,9 +309,10 @@ static func _resolve_fight(db: ContentDB, h: HeroState, seed: String, step: int,
 
 static func _do_offer(h: HeroState, mode: String, pol: String, rng_o: SeededRng, rng_b: SeededRng, offered: Dictionary, picked: Dictionary) -> void:
 	var cards := Rules.make_offer(h, rng_o, mode)
-	if pol == "codicioso":
+	if pol == "codicioso" or pol.begins_with("fam:"):
+		var hunt := 120.0 if pol.begins_with("fam:") else 60.0
 		var best := _best_score(h, cards, pol)
-		while best < 60.0 and h.rerolls > 0:
+		while best < hunt and h.rerolls > 0:
 			h.rerolls -= 1
 			cards = Rules.make_offer(h, rng_o, mode)
 			best = _best_score(h, cards, pol)
@@ -366,17 +387,17 @@ static func _merchant_action(h: HeroState, visit: Dictionary, pol: String, rng: 
 		return bag[rng.pick_index(bag.size())]
 	if pol == "rareza":
 		return _merchant_rarity(h, visit)
-	return _merchant_greedy(h, visit)
+	return _merchant_greedy(h, visit, pol)
 
 
-static func _merchant_greedy(h: HeroState, visit: Dictionary) -> Dictionary:
+static func _merchant_greedy(h: HeroState, visit: Dictionary, pol: String = "codicioso") -> Dictionary:
 	if not visit.skill_bought:
 		var best_i := -1
 		var best_s := -1.0
 		for i in visit.skills.size():
 			if h.coins < float(visit.skills[i].price):
 				continue
-			var s := _score_card(h, visit.skills[i], "codicioso")
+			var s := _score_card(h, visit.skills[i], pol)
 			if s > best_s:
 				best_s = s
 				best_i = i
@@ -471,6 +492,17 @@ static func _score_card(h: HeroState, c: Dictionary, pol: String) -> float:
 	var g := str(h.db.gear_by_id[h.gear].fam)
 	var f2 := _second_fam(h)
 	var rb := float({"comun": 0, "rara": 10, "epica": 25, "legendaria": 40}[str(s.rarity)])
+	if pol.begins_with("fam:"):
+		var target := pol.substr(4)
+		var on_target: bool = str(s.fam) == target or (s.has("syn") and s.syn.has(target))
+		var on_gear: bool = str(s.fam) == g or (s.has("syn") and s.syn.has(g))
+		if on_target:
+			return 130.0 + rb
+		if on_gear:
+			return 55.0 + rb
+		if f2 != "" and (str(s.fam) == f2 or (s.has("syn") and s.syn.has(f2))):
+			return 40.0 + rb
+		return 22.0 + rb
 	if pol == "rareza":
 		return rb * 4.0 + (10.0 if h.level(str(c.id)) else 0.0) + (15.0 if s.has("syn") else 0.0)
 	if s.has("syn") and s.syn.has(g):

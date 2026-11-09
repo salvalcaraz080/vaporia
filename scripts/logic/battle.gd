@@ -16,7 +16,6 @@ var log: Array = []
 var dmg: Dictionary = {}
 
 var gf: String = ""
-var gsrc: String = ""
 var ST: Dictionary = {}
 var bal: Dictionary = {}
 var _levels: Dictionary = {}
@@ -68,7 +67,6 @@ func _run(content: ContentDB, hero: HeroState, enemy: Dictionary, random: Seeded
 	bal = db.bal
 	var gear: Dictionary = db.gear_by_id[h.gear]
 	gf = str(gear.fam)
-	gsrc = "ataque" if gf == "engranaje" else gf
 	ST = h.stats()
 	for id in db.skill_by_id.keys():
 		var got := h.level(str(id))
@@ -81,10 +79,10 @@ func _run(content: ContentDB, hero: HeroState, enemy: Dictionary, random: Seeded
 	flasks = 2 if lv("a_frasco") >= 3 else (1 if lv("a_frasco") > 0 else 0)
 	heal_mult = 1.0 + sv("a_piedra")
 	catal = sv("a_catalizador")
-	plaga = lv("o_plaga") > 0 and h.fam_count("oxido") >= 4
+	plaga = lv("o_plaga") > 0 and h.fam_count("vitriol") >= 4
 	corazon = lv("v_corazon") > 0 and h.fam_count("vapor") >= 4
-	bucle = lv("c_bucle") > 0 and h.fam_count("reloj") >= 4
-	aurea = lv("a_aurea") > 0 and h.fam_count("alquimia") >= 4
+	bucle = lv("e_mecanismo") > 0 and h.fam_count("escapement") >= 4
+	aurea = lv("a_aurea") > 0 and h.fam_count("vitriol") >= 4
 	fortaleza = lv("r_fortaleza") > 0 and float(ST.def) >= 20.0
 
 	_log("info", "A " + str(e.name) + " shows up. Defense " + str(int(e.def)) + " · Evasion " + JsMath.fmt_p(float(e.eva)) + " · Accuracy +" + JsMath.fmt_p(float(e.acc)) + ((" · " + str(db.traits[e.trait])) if str(e.trait) != "" else ""))
@@ -160,7 +158,7 @@ func _run(content: ContentDB, hero: HeroState, enemy: Dictionary, random: Seeded
 			var mult := 1.25 if (s_i == 1 and lv("e_doble") >= 5) else 1.0
 			_strike("Second hit" if s_i == 1 else "Hit", "ataque", false, mult)
 			s_i += 1
-		tempo += sv("c_cuerda") + h.md("tempo") + (float(bal.gearTempo) if gf == "reloj" else 0.0)
+		tempo += sv("c_cuerda") + h.md("tempo")
 		while tempo >= 100.0 and float(e.hp) > 0.0:
 			tempo -= 100.0
 			_extra(1.0, "Extra action")
@@ -217,10 +215,10 @@ func _run(content: ContentDB, hero: HeroState, enemy: Dictionary, random: Seeded
 			e.stun = maxi(int(e.stun), 1)
 			_log("auto", "The colossus stomps! " + str(dmg_c) + " · stunned")
 		if bucle and turn % 6 == 0:
-			for _j in 3:
+			for _j in 2:
 				if float(e.hp) <= 0.0:
 					break
-				_extra(1.0 + sv("c_bucle"), "Time loop")
+				_extra(1.0, "Time loop")
 		if float(e.hp) <= 0.0:
 			break
 		if int(e.stun) > 0:
@@ -331,20 +329,38 @@ func _def_mult(defn: float) -> float:
 	return float(bal.defK) / (float(bal.defK) + max(0.0, defn))
 
 
+func _gear_src(src: String) -> bool:
+	if gf == "vitriol":
+		return src == "oxido" or src == "alquimia"
+	if gf == "galvanism":
+		return src == "tesla" or src == "iman"
+	if gf == "escapement":
+		return src == "ataque" or src == "reloj"
+	return src == gf
+
+
 func _deal(amt: float, src: String, attack: bool, dot: bool, pierce: bool) -> int:
 	var m := 1.0 + h.md("dmgPct")
-	if src == gsrc:
-		if gf == "engranaje":
+	if _gear_src(src):
+		if gf == "escapement" and src == "ataque":
 			m += float(bal.gearHitBonus)
 		elif gf == "vapor":
 			m += float(bal.gearVapor)
+		elif gf == "vitriol":
+			m += float(bal.gearVitriol)
+		elif gf == "galvanism":
+			m += float(bal.gearGalvanism)
+		elif gf == "auto":
+			m += float(bal.gearAuto)
+		elif gf == "remache":
+			m += float(bal.gearRemache)
 		else:
 			m += float(bal.gearBonus)
 	if float(e.poison) >= 8.0:
 		m += sv("o_corr")
 	if int(e.burn) > 0:
 		m += sv("v_presion")
-	m += float(e.mag) * (sv("m_atrac") + (float(bal.gearMag) if gf == "iman" else 0.0))
+	m += float(e.mag) * (sv("m_atrac") + (float(bal.gearMag) if gf == "galvanism" else 0.0))
 	if float(e.hp) > float(e.maxHp) * 0.7:
 		m += sv("a_volatil")
 	if attack and float(e.hp) < float(e.maxHp) * 0.3:
@@ -477,7 +493,13 @@ func _strike(label: String, src: String, extra: bool, mult: float) -> void:
 			return
 	var crit := rng.nextf() < _crit_now() or (extra and lv("y_ancora") > 0)
 	var meca := crit and lv("e_mecanismo") > 0 and _crit_now() >= 0.4
-	var amt := _atk_now() * (0.9 + rng.nextf() * 0.2) * mult * (float(bal.extraMult) if extra else float(bal.hitMult)) * (1.0 + sv("e_afilado"))
+	# Sharpened Teeth carries most of the old wrench bonus. Other Escapement
+	# skills cover the same ground until that skill is raised, so a secondary
+	# hit build is not stuck at the 0.6 hit multiplier.
+	var teeth := sv("e_afilado")
+	var kit := 0.15 * float(mini(h.fam_count("escapement"), 5))
+	var amp := teeth if teeth > kit else kit
+	var amt := _atk_now() * (0.9 + rng.nextf() * 0.2) * mult * (float(bal.extraMult) if extra else float(bal.hitMult)) * (1.0 + amp)
 	if crit:
 		amt *= _crit_dmg_now() + (sv("y_ancora") if extra else 0.0) + (sv("e_mecanismo") if meca else 0.0)
 	if swing % 3 == 0:
