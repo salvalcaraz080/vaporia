@@ -53,6 +53,7 @@ var events_n := 0
 var _scrap_banked := false
 var _scrap_note := {}
 var _xp_note := {}
+var _level_gain := {}
 var _level_before := 1
 var speed := 2
 var autoplay := false
@@ -241,6 +242,65 @@ func _button(text: String, cb: Callable, primary := false) -> Button:
 	return b
 
 
+func _next_reward_line() -> String:
+	var nxt: Dictionary = profile.next_reward()
+	if nxt.is_empty():
+		return "Every reward is earned."
+	if str(nxt.kind) == "skill":
+		return "Next: %s at level %d" % [str(nxt.name), int(nxt.level)]
+	var bits: PackedStringArray = []
+	if int(nxt.get("hp", 0)) > 0:
+		bits.append("+%d HP" % int(nxt.hp))
+	if int(nxt.get("atk", 0)) > 0:
+		bits.append("+%d attack" % int(nxt.atk))
+	if int(nxt.get("def", 0)) > 0:
+		bits.append("+%d defense" % int(nxt.def))
+	return "Next: %s at level %d" % [", ".join(bits), int(nxt.level)]
+
+
+func _gain_line(gain: Dictionary) -> String:
+	var bits: PackedStringArray = []
+	if int(gain.get("hp", 0)) > 0:
+		bits.append("+%d HP" % int(gain.hp))
+	if int(gain.get("atk", 0)) > 0:
+		bits.append("+%d attack" % int(gain.atk))
+	if int(gain.get("def", 0)) > 0:
+		bits.append("+%d defense" % int(gain.def))
+	if int(gain.get("scrap", 0)) > 0:
+		bits.append("+%d scrap" % int(gain.scrap))
+	if bits.is_empty():
+		return "A little further along."
+	return ", ".join(bits)
+
+
+func _play_xp_bar(bar: ProgressBar, banner: Label, leveled: bool, after_prog: Dictionary) -> void:
+	var spent := int(_xp_note.get("total", 0))
+	var before_xp := int(_level_gain.get("xpBefore", profile.xp - spent))
+	var before: Dictionary = profile.progress_at(before_xp)
+	if leveled:
+		var span := maxf(1.0, float(after_prog.span))
+		var dest := float(after_prog.have)
+		if after_prog.atMax == true or dest <= 0.0:
+			span = 1.0
+			dest = 1.0
+		bar.max_value = span
+		bar.value = 0.0
+		if banner:
+			banner.modulate.a = 0.0
+		var tw := create_tween()
+		tw.tween_property(bar, "value", dest, 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		if banner:
+			tw.parallel().tween_property(banner, "modulate:a", 1.0, 0.22).set_delay(0.18)
+		return
+	bar.max_value = maxf(1.0, float(after_prog.span))
+	var start := 0.0
+	if int(before.level) == int(profile.character_level()):
+		start = float(before.have)
+	bar.value = start
+	var tw_same := create_tween()
+	tw_same.tween_property(bar, "value", float(after_prog.have), 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+
 func _xp_bar(have: float, span: float) -> ProgressBar:
 	var b := _bar(COL_VERDIGRIS)
 	b.min_value = 0.0
@@ -285,7 +345,10 @@ func _drive_async(kind: String) -> void:
 	print("SCREEN " + kind)
 	await get_tree().process_frame
 	await RenderingServer.frame_post_draw
-	await get_tree().create_timer(0.45).timeout
+	var pause := 0.45
+	if kind == "end":
+		pause = 0.9
+	await get_tree().create_timer(pause).timeout
 	if not _shot.has(kind):
 		_shot[kind] = true
 		var img := get_viewport().get_texture().get_image()
@@ -328,10 +391,7 @@ func _show_workshop() -> void:
 	pair.add_theme_constant_override("separation", 4)
 	var chispa := ChispaMark.new()
 	chispa.custom_minimum_size = Vector2(72, 96)
-	var farol := FarolMark.new()
-	farol.custom_minimum_size = Vector2(64, 96)
 	pair.add_child(chispa)
-	pair.add_child(farol)
 	row.add_child(pair)
 	var title := VBoxContainer.new()
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -347,7 +407,8 @@ func _show_workshop() -> void:
 		xp_line = "%d / %d XP" % [int(into.have), int(into.span)]
 	_header.add_child(_label(xp_line, 30, COL_TEXT, false))
 	_header.add_child(_xp_bar(float(into.have), float(into.span)))
-	_body.add_child(_label("The bench is patched copper and verdigris. Farolillo's lantern pools light on the scrap drawer. Nuts stay in the run. Scrap stays here.", 26))
+	_header.add_child(_label(_next_reward_line(), 28, COL_BRASS))
+	_body.add_child(_label("The bench is patched copper and verdigris. A wall lamp pools light on the scrap drawer. Nuts stay in the run. Scrap stays here.", 26))
 	_body.add_child(_label("Chassis", 28, COL_BRASS))
 	var atk_cost := int(profile.attack_cost())
 	var atk_btn := _button("Fit a stronger arm  ·  +1 attack  ·  %d scrap" % atk_cost, func():
@@ -434,10 +495,7 @@ func _show_home() -> void:
 	pair.add_theme_constant_override("separation", 4)
 	var chispa := ChispaMark.new()
 	chispa.custom_minimum_size = Vector2(72, 96)
-	var farol := FarolMark.new()
-	farol.custom_minimum_size = Vector2(64, 96)
 	pair.add_child(chispa)
-	pair.add_child(farol)
 	row.add_child(pair)
 	_sync_zone()
 	var title := VBoxContainer.new()
@@ -449,7 +507,7 @@ func _show_home() -> void:
 	var intro := _panel()
 	var iv := VBoxContainer.new()
 	iv.add_theme_constant_override("separation", 6)
-	iv.add_child(_label("Chispa, a small repair-bot, crosses the Boiler Ward with Farolillo, her lantern-bot, bumping along behind. Pick a humble tool. Fights play themselves. Then choose 1 of 3 skills from 8 families, spend nuts on your stats, and make the calls at statues, shrines, merchants, and wagers."))
+	iv.add_child(_label("Chispa, a small repair-bot, crosses the Boiler Ward alone. Pick a humble tool. Fights play themselves. Then choose 1 of 3 skills from 8 families, spend nuts on your stats, and make the calls at statues, shrines, merchants, and wagers."))
 	iv.add_child(_label("No energy. No ads. No paid wheels.", 22, COL_MUTED))
 	intro.add_child(iv)
 	_body.add_child(intro)
@@ -514,6 +572,7 @@ func _start_run() -> void:
 	hero = HeroState.create(db, ui_gear, profile)
 	_scrap_banked = false
 	_xp_note = {}
+	_level_gain = {}
 	_level_before = int(profile.character_level())
 	chapter = db.chapter
 	step = -1
@@ -795,7 +854,7 @@ func _start_fight(kind: String, sub: int, cb: Callable) -> void:
 	var arena := HBoxContainer.new()
 	_arena = arena
 	arena.add_theme_constant_override("separation", 8)
-	_player_art = _fighter("Chispa", "with Farolillo", COL_BRASS, "chispa")
+	_player_art = _fighter("Chispa", "", COL_BRASS, "chispa")
 	arena.add_child(_player_art)
 	var vs := _label("VS", 18, COL_MUTED, false)
 	vs.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -875,10 +934,7 @@ func _fighter(name: String, sub: String, col: Color, kind: String) -> VBoxContai
 		row.alignment = BoxContainer.ALIGNMENT_CENTER
 		var c := ChispaMark.new()
 		c.custom_minimum_size = Vector2(78, 104)
-		var f := FarolMark.new()
-		f.custom_minimum_size = Vector2(58, 104)
 		row.add_child(c)
-		row.add_child(f)
 		art = row
 	else:
 		var e := EnemyMark.new()
@@ -1264,10 +1320,7 @@ func _show_end(win: bool, enemy: Dictionary) -> void:
 	pair.alignment = BoxContainer.ALIGNMENT_CENTER
 	var chispa := ChispaMark.new()
 	chispa.custom_minimum_size = Vector2(84, 110)
-	var farol := FarolMark.new()
-	farol.custom_minimum_size = Vector2(72, 110)
 	pair.add_child(chispa)
-	pair.add_child(farol)
 	_body.add_child(pair)
 	var steps_reached := chapter.size() if win else step + 1
 	if not _scrap_banked and hero != null:
@@ -1275,33 +1328,37 @@ func _show_end(win: bool, enemy: Dictionary) -> void:
 		_scrap_note = profile.scrap_reward(steps_reached, win, hero.coins)
 		_xp_note = profile.xp_reward(steps_reached, win)
 		profile.grant(_scrap_note)
-		profile.grant_xp(int(_xp_note.total))
+		_level_gain = profile.grant_xp(int(_xp_note.total))
 		profile.save()
 		_scrap_banked = true
 	var level_after := int(profile.character_level())
+	var leveled := level_after > _level_before
 	var heading := _label("Chapter cleared" if win else "The crossing ends", 34, COL_BRASS)
 	heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_body.add_child(heading)
+	var banner: Label = null
+	if leveled:
+		banner = _label("LEVEL UP", 48, COL_BRASS)
+		banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_body.add_child(banner)
+		var step_line := "Level %d → %d" % [_level_before, level_after]
+		var got := _label(step_line + "\n" + _gain_line(_level_gain), 32, COL_TEXT)
+		got.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_body.add_child(got)
 	var xp_total := int(_xp_note.get("total", 0))
-	var xp_l := _label("+%d XP" % xp_total, 44, COL_VERDIGRIS)
+	var xp_l := _label("+%d XP" % xp_total, 40, COL_VERDIGRIS)
 	xp_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_body.add_child(xp_l)
-	var xp_bits := "Level %d" % level_after
-	if level_after > _level_before:
-		xp_bits = "Level %d → %d" % [_level_before, level_after]
-	var grown: Dictionary = profile.level_bonus()
-	var grown_bits: PackedStringArray = []
-	if int(grown.hp) > 0:
-		grown_bits.append("+%d HP" % int(grown.hp))
-	if int(grown.atk) > 0:
-		grown_bits.append("+%d attack" % int(grown.atk))
-	if int(grown.def) > 0:
-		grown_bits.append("+%d defense" % int(grown.def))
-	if grown_bits.size() > 0:
-		xp_bits += "\n" + ", ".join(grown_bits)
-	var xp_d := _label(xp_bits, 32, COL_TEXT)
-	xp_d.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_body.add_child(xp_d)
+	var after_prog: Dictionary = profile.xp_into_level()
+	var bar := _xp_bar(0.0, 1.0)
+	_body.add_child(bar)
+	var now_line := "Level %d" % level_after
+	if after_prog.atMax != true:
+		now_line += "  ·  %d / %d XP" % [int(after_prog.have), int(after_prog.span)]
+	var now_l := _label(now_line, 28, COL_TEXT)
+	now_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_body.add_child(now_l)
+	_play_xp_bar(bar, banner, leveled, after_prog)
 	var scrap_total := int(_scrap_note.get("total", 0))
 	var scrap_l := _label("+%d scrap" % scrap_total, 44, COL_BRASS)
 	scrap_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -1313,13 +1370,15 @@ func _show_end(win: bool, enemy: Dictionary) -> void:
 		scrap_bits += "  ·  boiler +%d" % int(_scrap_note.get("victory", 0))
 	if int(_scrap_note.get("nuts", 0)) > 0:
 		scrap_bits += "  ·  leftover nuts +%d" % int(_scrap_note.get("nuts", 0))
+	if int(_level_gain.get("scrap", 0)) > 0:
+		scrap_bits += "  ·  level-up +%d" % int(_level_gain.scrap)
 	var scrap_d := _label(scrap_bits, 26, COL_TEXT)
 	scrap_d.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_body.add_child(scrap_d)
 	_body.add_child(_label("Drawer now holds %d scrap." % int(profile.scrap), 26, COL_MUTED))
 	var blurb := ""
 	if win:
-		blurb = "Chispa banks the Great Boiler. Farolillo blinks, warm and smug."
+		blurb = "Chispa banks the Great Boiler. The ward ticks, warm and quiet."
 	else:
 		blurb = "You fell on step %d of %d" % [step + 1, chapter.size()]
 		if enemy.size():
@@ -1468,35 +1527,6 @@ class ChispaMark:
 		draw_circle(Vector2(45, 35), 2.2, Color("e07a3d"))
 		draw_circle(Vector2(22, 58), 1.8, Color("c4a574"))
 		draw_circle(Vector2(56, 66), 1.8, Color("c4a574"))
-		draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
-
-
-class FarolMark:
-	extends Control
-
-	func _draw() -> void:
-		var s := size
-		var u := min(s.x / 64.0, s.y / 104.0)
-		var o := Vector2((s.x - 64.0 * u) * 0.5, s.y - 104.0 * u)
-		draw_set_transform(o, 0, Vector2(u, u))
-		# Hooded cloak, copper lantern frame (not the green concept frame).
-		draw_colored_polygon(PackedVector2Array([
-			Vector2(14, 36), Vector2(32, 18), Vector2(50, 36), Vector2(54, 88), Vector2(10, 88),
-		]), Color("8a8680"))
-		draw_colored_polygon(PackedVector2Array([
-			Vector2(18, 28), Vector2(32, 14), Vector2(46, 28), Vector2(42, 40), Vector2(22, 40),
-		]), Color("6e6a66"))
-		draw_rect(Rect2(18, 40, 28, 32), Color("c47a45"))
-		draw_circle(Vector2(20, 42), 1.6, Color("8a5a32"))
-		draw_circle(Vector2(44, 42), 1.6, Color("8a5a32"))
-		draw_rect(Rect2(22, 44, 20, 24), Color("2a241c"))
-		draw_colored_polygon(PackedVector2Array([Vector2(32, 46), Vector2(38, 56), Vector2(32, 66), Vector2(26, 56)]), Color("e07a3d"))
-		draw_circle(Vector2(29, 54), 1.4, Color("2a241c"))
-		draw_circle(Vector2(35, 54), 1.4, Color("2a241c"))
-		draw_rect(Rect2(28, 22, 8, 10), Color("3a3128"))
-		draw_circle(Vector2(30, 16), 4, Color("f6f0e4"))
-		draw_rect(Rect2(18, 88, 8, 8), Color("6b4a32"))
-		draw_rect(Rect2(38, 88, 8, 8), Color("6b4a32"))
 		draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
 
 

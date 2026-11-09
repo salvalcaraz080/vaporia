@@ -2,7 +2,7 @@
 
 A fair, fun-first semi-idle roguelite in the vein of Capybara Go and Rogue Legend. Steampunk, English, built for a phone browser first. Godot 4.7, GDScript, Compatibility renderer.
 
-Chispa is the one doing the fighting. Farolillo, a lantern-snail, comes along.
+Chispa is the one doing the fighting, and she starts alone.
 
 This build plays the v3 fight and event loop, with one change: nuts are spent only at a wandering merchant on steps 10 and 23. Each stall sells up to three stat upgrades and one skill, and the stock can be refreshed. Camps are only a rest or a free skill tune.
 
