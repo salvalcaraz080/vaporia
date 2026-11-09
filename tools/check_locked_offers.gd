@@ -41,6 +41,56 @@ func _init() -> void:
 	if not after.skill_allowed(start_id):
 		push_error("starter %s stayed locked after unlocking %s" % [start_id, locked_gear])
 		bad += 1
+	var gated := ""
+	for s in db.skills:
+		if int(s.get("requiredLevel", 0)) <= 0:
+			continue
+		if open_fams.has(str(s.fam)):
+			gated = str(s.id)
+			break
+	if gated == "":
+		push_error("no level-gated skill sits in an open family")
+		bad += 1
+	else:
+		if before.skill_allowed(gated):
+			push_error("level-gated %s was available at level 1" % gated)
+			bad += 1
+		if profile.can_buy_rare(gated):
+			push_error("level-gated %s could be bought" % gated)
+			bad += 1
+		profile.xp = profile.xp_to_reach(int(db.skill_by_id[gated].requiredLevel))
+		var high = HeroState.create(db, str(profile.unlocked_tool_ids()[0]), profile)
+		if not high.skill_allowed(gated):
+			push_error("level-gated %s stayed locked at its required level" % gated)
+			bad += 1
+		for s3 in db.skills:
+			if int(s3.get("requiredLevel", 0)) > 0:
+				continue
+			high.set_level(str(s3.id), int(s3.max))
+		var saw_offer := false
+		var offer_rng := SeededRng.new("LEVEL|" + gated)
+		for _n in 20:
+			for card in Rules.make_offer(high, offer_rng, "epica"):
+				if str(card.id) == gated:
+					saw_offer = true
+		if not saw_offer:
+			push_error("combat offers never included %s once its level was reached" % gated)
+			bad += 1
+		var shop: Dictionary = Rules.open_merchant(db, high, 23, SeededRng.new("SHOP|" + gated))
+		for card in shop.skills:
+			if int(db.skill_by_id[str(card.id)].get("requiredLevel", 0)) > 0:
+				push_error("merchant sold level-gated %s" % str(card.id))
+				bad += 1
+		var still_locked := ""
+		for s2 in db.skills:
+			if int(s2.get("requiredLevel", 0)) <= 0:
+				continue
+			if not profile.family_open(str(s2.fam)):
+				still_locked = str(s2.id)
+				break
+		if still_locked != "" and high.skill_allowed(still_locked):
+			push_error("level-gated %s opened while its family tool is locked" % still_locked)
+			bad += 1
 	if bad > 0:
 		push_error("locked-family offer check failed (%d)" % bad)
 		quit(1)

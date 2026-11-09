@@ -9,6 +9,7 @@ var db: ContentDB
 var version := 1
 var scrap := 0
 var scrap_earned := 0
+var xp := 0
 var tools: Dictionary = {}
 var skills: Dictionary = {}
 var chassis: Dictionary = {"atk": 0, "hp": 0, "def": 0}
@@ -47,6 +48,7 @@ static func mid(content: ContentDB):
 	for sid in meta.get("midUnlocks", []):
 		if p.skills.has(sid):
 			p.skills[sid].unlocked = true
+	p.xp = p._mid_xp()
 	return p
 
 
@@ -57,6 +59,7 @@ static func mid_for(content: ContentDB, fam_id: String):
 	p.chassis.atk = 2
 	p.chassis.hp = 1
 	p.scrap_earned = 520
+	p.xp = p._mid_xp()
 	var gear_id := ""
 	for g in content.gears:
 		if str(g.fam) == fam_id:
@@ -94,6 +97,7 @@ static func capped(content: ContentDB):
 	p.chassis.hp = 5
 	p.chassis.def = 3
 	p.scrap_earned = 2000
+	p.xp = p.xp_to_reach(30)
 	var ranked := 0
 	for g in content.gears:
 		var id := str(g.id)
@@ -130,6 +134,7 @@ static func load_or_default(content: ContentDB):
 		return p
 	p.scrap = maxi(0, int(parsed.get("scrap", 0)))
 	p.scrap_earned = maxi(0, int(parsed.get("scrapEarned", 0)))
+	p.xp = maxi(0, int(parsed.get("xp", 0)))
 	var saved_ch: Dictionary = parsed.get("chassis", {})
 	for k in ["atk", "hp", "def"]:
 		p.chassis[k] = maxi(0, int(saved_ch.get(k, 0)))
@@ -163,6 +168,7 @@ func to_dict() -> Dictionary:
 		"version": version,
 		"scrap": scrap,
 		"scrapEarned": scrap_earned,
+		"xp": xp,
 		"chassis": chassis.duplicate(),
 		"tools": tools.duplicate(true),
 		"skills": skills.duplicate(true),
@@ -317,6 +323,82 @@ func grant(reward: Dictionary) -> void:
 	scrap_earned += n
 
 
+func xp_reward(steps_reached: int, won: bool) -> Dictionary:
+	var rules: Dictionary = db.meta.get("xp", {})
+	var per := int(rules.get("perStep", 3))
+	var mini_bonus := int(rules.get("miniboss", 20))
+	var mini_step := int(rules.get("minibossStep", 15))
+	var victory := int(rules.get("victory", 50)) if won else 0
+	var steps := maxi(0, steps_reached) * per
+	var boss_bit := mini_bonus if steps_reached >= mini_step else 0
+	return {"steps": steps, "miniboss": boss_bit, "victory": victory, "total": steps + boss_bit + victory}
+
+
+func grant_xp(amount: int) -> void:
+	xp += maxi(0, amount)
+
+
+func _level_table() -> Array:
+	var levels: Dictionary = db.meta.get("levels", {})
+	var table = levels.get("table", [])
+	if typeof(table) != TYPE_ARRAY:
+		return []
+	return table
+
+
+func _mid_xp() -> int:
+	var mid_meta: Dictionary = db.meta.get("mid", {})
+	if mid_meta.has("xp"):
+		return maxi(0, int(mid_meta.xp))
+	return xp_to_reach(2)
+
+
+func xp_to_reach(target: int) -> int:
+	var need := 0
+	for row in _level_table():
+		if int(row.level) <= target:
+			need = int(row.xp)
+	return need
+
+
+func character_level() -> int:
+	var lv := 1
+	for row in _level_table():
+		if xp >= int(row.xp) and int(row.level) > lv:
+			lv = int(row.level)
+	return lv
+
+
+func level_bonus() -> Dictionary:
+	var hp := 0
+	var atk := 0
+	var defn := 0
+	var lv := character_level()
+	for row in _level_table():
+		if int(row.level) > lv:
+			continue
+		hp += int(row.get("hp", 0))
+		atk += int(row.get("atk", 0))
+		defn += int(row.get("def", 0))
+	return {"hp": hp, "atk": atk, "def": defn}
+
+
+func xp_into_level() -> Dictionary:
+	var lv := character_level()
+	var cur := 0
+	var nxt := 0
+	var found_next := false
+	for row in _level_table():
+		if int(row.level) == lv:
+			cur = int(row.xp)
+		if int(row.level) == lv + 1:
+			nxt = int(row.xp)
+			found_next = true
+	if not found_next:
+		return {"have": 1, "span": 1, "atMax": true}
+	return {"have": maxi(0, xp - cur), "span": maxi(1, nxt - cur), "atMax": false}
+
+
 func attack_cost() -> int:
 	return _next_cost("chassis", "atk")
 
@@ -416,6 +498,8 @@ func can_buy_rare(id: String) -> bool:
 		return false
 	var sk: Dictionary = db.skill_by_id[id]
 	if str(sk.rarity) != "rara":
+		return false
+	if int(sk.get("requiredLevel", 0)) > 0:
 		return false
 	if not family_open(str(sk.fam)):
 		return false
